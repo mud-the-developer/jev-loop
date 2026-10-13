@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCtx, createMockPi, flushAsync } from "./helpers/mock-pi.js";
+
+beforeEach(() => {
+  // Notification assertions must not consume an unrelated session's recovery wakes.
+  vi.stubEnv("PI_LOOP", "off");
+  vi.stubEnv("PI_LOOP_SCOPE", "memory");
+});
+afterEach(() => vi.unstubAllEnvs());
 
 describe("harness state steering", () => {
   it("uses custom steer messages with triggerTurn instead of sendUserMessage when a loop wake is effective", async () => {
