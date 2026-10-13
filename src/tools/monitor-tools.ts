@@ -98,7 +98,8 @@ export function registerMonitorTools(options: MonitorToolsOptions): void {
         kind: "monitor", action: "create", tone: "error", summary: "Choose workflowId or onDone", expanded: [],
       }));
     }
-    if (getMonitorManager().list().filter((m) => m.status === "running").length >= 25) {
+    const manager = getMonitorManager();
+    if (manager.list().filter((m) => m.status === "running").length >= 25) {
       return Promise.resolve(textResult("Maximum of 25 running monitors reached. Stop some before creating new ones.", {
         kind: "monitor", action: "create", tone: "error", summary: "Monitor limit reached", expanded: ["Stop a running monitor before starting another."],
       }));
@@ -122,20 +123,55 @@ export function registerMonitorTools(options: MonitorToolsOptions): void {
       }));
     }
 
-    const entry = getMonitorManager().create(params.command, params.description, params.timeout);
+    const workflowId = workflow?.id;
+    const expected = workflow?.workflow ? {
+      stateId: workflow.workflow.currentState,
+      transitionSeq: workflow.workflow.transitionSeq,
+      definitionRevision: workflow.workflow.definitionRevision,
+      activeExecutionId: workflow.workflow.activeExecution?.id,
+    } : undefined;
+    const lifetime = workflow ? { createdAt: workflow.createdAt, expiresAt: workflow.expiresAt } : undefined;
+    const observedActor = getActor();
+    const actor = observedActor ? { sessionId: observedActor.sessionId, runtimeId: observedActor.runtimeId } : undefined;
+    const resourcesCurrent = () => {
+      const currentActor = getActor();
+      return getStore() === store && getMonitorManager() === manager
+        && currentActor?.sessionId === actor?.sessionId && currentActor?.runtimeId === actor?.runtimeId;
+    };
+    const entry = manager.create(params.command, params.description, params.timeout);
     let workflowMsg = "";
-    if (workflow?.workflow) {
-      const attached = store.attachWorkflowMonitor(workflow.id, entry.id, {
-        stateId: workflow.workflow.currentState,
-        transitionSeq: workflow.workflow.transitionSeq,
-        definitionRevision: workflow.workflow.definitionRevision,
-        activeExecutionId: workflow.workflow.activeExecution?.id,
-      }, getActor());
+    if (workflowId && expected) {
+      const attach = (definitionRevision: number) => store.attachWorkflowMonitor(workflowId, entry.id, {
+        ...expected, definitionRevision,
+      }, actor ? { ...actor } : undefined);
+      let attached = resourcesCurrent() ? attach(expected.definitionRevision) : undefined;
+      if (!attached && expected.activeExecutionId && resourcesCurrent()) {
+        const current = store.get(workflowId);
+        const run = current?.workflow;
+        if (current?.status === "active" && run && !run.waitingMonitor
+          && !run.definition.states[run.currentState]?.terminal
+          && current.createdAt === lifetime?.createdAt && current.expiresAt === lifetime?.expiresAt
+          && run.currentState === expected.stateId && run.transitionSeq === expected.transitionSeq
+          && run.activeExecution?.id === expected.activeExecutionId && run.activeExecution.status === "active"
+          && run.definitionRevision > expected.definitionRevision && resourcesCurrent()) {
+          // Re-resolve one revision-only race; the locked store still validates
+          // current ownership/CAS. Never repeat the command or attach replacement work.
+          attached = attach(run.definitionRevision);
+        }
+      }
       if (!attached) {
-        void getMonitorManager().stop(entry.id);
-        return Promise.resolve(textResult(`Monitor #${entry.id} stopped because workflow #${workflow.id} changed before ownership could be attached.`, {
-          kind: "monitor", action: "create", tone: "error", summary: `Workflow #${workflow.id} changed`, expanded: [],
-        }));
+        let stopped = false;
+        try {
+          stopped = await manager.stop(entry.id);
+        } catch {
+          // Refusal remains authoritative when process cleanup cannot be confirmed.
+        }
+        if (resourcesCurrent()) updateWidget();
+        return textResult(stopped
+          ? `Monitor #${entry.id} stopped because workflow #${workflowId} changed before ownership could be attached.`
+          : `Monitor #${entry.id} cleanup could not be confirmed after workflow #${workflowId} changed before ownership could be attached. Inspect MonitorList before retrying.`, {
+          kind: "monitor", action: "create", tone: "error", summary: `Workflow #${workflowId} changed`, expanded: [],
+        });
       }
       getTriggerSystem().remove(attached.id);
       handleWorkflowMonitorWait(attached);
@@ -165,7 +201,7 @@ export function registerMonitorTools(options: MonitorToolsOptions): void {
     } catch (error) {
       let cleanupConfirmed = false;
       try {
-        cleanupConfirmed = await getMonitorManager().stop(entry.id);
+        cleanupConfirmed = await manager.stop(entry.id);
       } catch {
         // The creation error remains authoritative even if process cleanup cannot be confirmed.
       }
