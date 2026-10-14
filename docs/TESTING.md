@@ -201,7 +201,7 @@ The default is 15 measured rounds after 3 warmups, serial fresh processes, alter
 ```bash
 npm run profile:fuzz -- --suite monitor-runtime --runs 100 --seed 130363
 npm run profile:fuzz -- --suite monitor-runtime --runs 100 --seed 130363 \
-  --test fault-injected --path '5:4:4:4:7:7:7:7:7:7:7'
+  --test fault-injected --path '0'
 ```
 
 Suites: `monitor-runtime`, `monitor-inactivity`, `monitor-native`, `workflow-restart`. Runs and seeds are positive safe integers. The runner caps cases at 1,000; native cases retain their existing cap of 64. Replay requires an explicit seed and a pattern selecting exactly one property, with no control tests. Each invocation runs one serial Vitest child without a shell or retries.
