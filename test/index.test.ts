@@ -13,6 +13,20 @@ import { TriggerSystem } from "../src/trigger-system.js";
 import type { LoopEntry, LoopFireOrigin } from "../src/types.js";
 import { createCtx, createMockPi, flushAsync } from "./helpers/mock-pi.js";
 
+async function expectIdleMonitorWake(receipts: Pick<ReturnType<typeof createMockPi>, "emittedEvents" | "sentMessages">, prompt: string, exitCode: number): Promise<void> {
+  // Child close and wake delivery can occur after an arbitrary sleep.
+  await vi.waitFor(() => {
+    const terminal = receipts.emittedEvents.filter(event => event.name === "monitor:finished" && event.payload.monitorId === "1");
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0].payload).toMatchObject({ monitorId: "1", status: exitCode === 0 ? "completed" : "error", exitCode });
+    expect(receipts.sentMessages).toHaveLength(1);
+    expect(receipts.sentMessages[0].message.content).toContain(prompt);
+  }, { timeout: 5000, interval: 10 });
+  await flushAsync();
+  expect(receipts.sentMessages).toHaveLength(1);
+  expect(receipts.sentMessages[0].message.content).toContain(prompt);
+}
+
 function readJsonFile(path: string): any {
   try {
     return JSON.parse(readFileSync(path, "utf-8"));
@@ -2764,8 +2778,11 @@ describe("monitor tool wrappers", () => {
     expect(result.content[0].text).toContain("not found");
   });
 
-  it("onDone monitor completion delivers a custom message wake", async () => {
-    const { pi, toolMap, sentMessages: sentCustomMessages } = createMockPi();
+  it.each([
+    { title: "onDone monitor completion delivers a custom message wake", command: "echo 'monitor done'" },
+    { title: "onDone delayed completion preserves the custom wake outcome", command: "sleep 1; echo 'monitor done'" },
+  ])("$title", async ({ command }) => {
+    const { pi, toolMap, emittedEvents, sentMessages: sentCustomMessages } = createMockPi();
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -2775,12 +2792,12 @@ describe("monitor tool wrappers", () => {
     expect(monitorCreate?.execute).toBeDefined();
 
     const result = await monitorCreate!.execute?.("1", {
-      command: "echo 'monitor done'",
+      command,
       onDone: "Monitor finished — report results",
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    await new Promise(r => setTimeout(r, 500));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor finished — report results", 0);
 
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain(
@@ -3003,7 +3020,7 @@ describe("monitor tool wrappers", () => {
   }, 10000);
 
   it("onDone monitor completion does not rely on monitor:done event dispatch", async () => {
-    const { pi, toolMap, sentMessages: sentCustomMessages } = createMockPi({ suppressMonitorDoneDispatch: true });
+    const { pi, toolMap, emittedEvents, sentMessages: sentCustomMessages } = createMockPi({ suppressMonitorDoneDispatch: true });
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -3018,7 +3035,7 @@ describe("monitor tool wrappers", () => {
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    await new Promise(r => setTimeout(r, 500));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor finished without event dispatch", 0);
 
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain("Monitor finished without event dispatch");
@@ -3065,7 +3082,7 @@ describe("monitor tool wrappers", () => {
   }, 10000);
 
   it("delivers monitor completion wake immediately in an idle session after agent_end", async () => {
-    const { pi, toolMap, extensionHandlers, sentMessages: sentCustomMessages } = createMockPi();
+    const { pi, toolMap, extensionHandlers, sentMessages: sentCustomMessages, emittedEvents } = createMockPi();
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -3095,16 +3112,14 @@ describe("monitor tool wrappers", () => {
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    // Wait for process to exit and wake to deliver
-    await new Promise(r => setTimeout(r, 500));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor completed during idle session", 0);
 
-    // It should deliver the wake immediately because the session is idle!
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain("Monitor completed during idle session");
   }, 10000);
 
   it("delivers monitor completion wake even when the command exits with non-zero status in an idle session", async () => {
-    const { pi, toolMap, extensionHandlers, sentMessages: sentCustomMessages } = createMockPi();
+    const { pi, toolMap, extensionHandlers, sentMessages: sentCustomMessages, emittedEvents } = createMockPi();
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -3132,11 +3147,30 @@ describe("monitor tool wrappers", () => {
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    await new Promise(r => setTimeout(r, 500));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor failed in idle session", 3);
 
     // Wake should still be delivered to notify about the failure!
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain("Monitor failed in idle session");
+  }, 10000);
+
+  it("observes delayed nonzero completion before asserting its idle wake", async () => {
+    const { pi, toolMap, extensionHandlers, sentMessages, emittedEvents } = createMockPi();
+    extension(pi as any);
+    await vi.advanceTimersByTimeAsync(6100);
+    vi.useRealTimers();
+    const ctx = createCtx();
+    for (const name of ["turn_start", "agent_start", "agent_end"]) {
+      for (const handler of extensionHandlers.get(name) ?? []) await handler(null, ctx);
+    }
+    const result = await toolMap.get("MonitorCreate")!.execute?.("1", {
+      command: "sleep 1; exit 3",
+      onDone: "Delayed nonzero idle wake",
+    });
+    expect(result.content[0].text).toContain("Completion wake loop");
+    await expectIdleMonitorWake({ emittedEvents, sentMessages }, "Delayed nonzero idle wake", 3);
+    expect(sentMessages).toHaveLength(1);
+    expect((sentMessages[0].message as { content: string }).content).toContain("Delayed nonzero idle wake");
   }, 10000);
 
   it("delivers monitor completion wake when the command times out", async () => {
