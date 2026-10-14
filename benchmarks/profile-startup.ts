@@ -112,7 +112,7 @@ export async function runStartupProfile(args: string[]) {
     const profilePath = join(profileDir, `${label}.cpuprofile`);
     const receiptPath = join(output, `${label}.loaded.json`);
     if (profile) mkdirSync(profileDir, { recursive: true });
-    const childArgs = ["--import", probe, ...(profile ? ["--import", profiler] : []), ...cases[name]!];
+    const childArgs = ["--import", pathToFileURL(probe).href, ...(profile ? ["--import", pathToFileURL(profiler).href] : []), ...cases[name]!];
     const start = performance.now();
     const child = spawnSync(process.execPath, childArgs, { cwd: workspace, env: { ...env, PI_LOOP_STARTUP_METRICS: metricsPath, PI_LOOP_STARTUP_RECEIPT: receiptPath, PI_LOOP_STARTUP_PROFILE: profilePath }, encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024 });
     const wallMs = performance.now() - start;

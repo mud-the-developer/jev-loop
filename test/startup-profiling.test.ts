@@ -1,11 +1,66 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { pathToFileURL } from "node:url";
+import { describe, expect, it, vi } from "vitest";
+
 import { runStartupProfile } from "../benchmarks/profile-startup.js";
 import { pairedStartupSummary, preserveStartupCleanup, startupOptions, summarizeDurations } from "../benchmarks/startup-report.js";
 
+vi.mock("node:child_process", async () => {
+  const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
+
 describe("startup profiling expectations", () => {
+  it("rejects raw Windows drive preloads while an existing file URL loads", () => {
+    const dir = mkdtempSync(join(tmpdir(), "startup-loader-"));
+    try {
+      const preload = join(dir, "preload space é #.mjs");
+      writeFileSync(preload, "process.stdout.write('owned preload loaded');\n");
+      const rejected = spawnSync(process.execPath, ["--import", String.raw`C:\owned\preload.mjs`, "--eval", ""], { encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024 });
+      expect(rejected.status).toBe(1);
+      expect(rejected.signal).toBeNull();
+      expect(rejected.stderr).toContain("ERR_UNSUPPORTED_ESM_URL_SCHEME");
+      expect(rejected.stderr).toContain("c:");
+      expect(rejected.stdout).not.toContain("owned preload loaded");
+      const loaded = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, "--eval", ""], { encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024 });
+      expect(loaded.status).toBe(0);
+      expect(loaded.signal).toBeNull();
+      expect(loaded.stderr).toBe("");
+      expect(loaded.stdout).toBe("owned preload loaded");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("passes file URLs for every actual metrics and CPU preload", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "startup-profile-argv-"));
+    try {
+      mkdirSync(join(dir, "bin"));
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "control-only" }));
+      const cli = join(dir, "bin/cli.mjs");
+      writeFileSync(cli, `import {pathToFileURL} from 'node:url'; const i=process.argv.indexOf('-e'); if(i>=0)await(await import(pathToFileURL(process.argv[i+1]).href)).default({});\n`);
+      const entry = join(dir, "entry space é #.mjs");
+      writeFileSync(entry, "export default function() {}\n");
+      vi.mocked(spawnSync).mockClear();
+      const result = await runStartupProfile(["--cli", cli, "--baseline", entry, "--rounds", "3", "--warmups", "0", "--profiles", "--out", join(dir, "out")]);
+      expect(result.metadata.complete).toBe(true);
+      expect(result.metadata.samples).toHaveLength(9);
+      expect(result.metadata.profileSamples).toHaveLength(3);
+      expect(result.metadata.profiles).toHaveLength(3);
+      const children = vi.mocked(spawnSync).mock.calls.filter(([binary]) => binary === process.execPath);
+      expect(children).toHaveLength(12);
+      let preloads = 0;
+      for (const [, args] of children) {
+        for (let i = 0; i < (args?.length ?? 0); i++) {
+          if (args?.[i] !== "--import") continue;
+          preloads++;
+          expect(args[i + 1]).toMatch(/^file:\/\//);
+        }
+      }
+      expect(preloads).toBe(15);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   it("requires affirmative factory receipts despite a zero-exit CLI swallowing load errors", async () => {
     const dir = mkdtempSync(join(tmpdir(), "startup-profile-control-"));
     try {

@@ -49,8 +49,8 @@ describe("opt-in fuzz profiling feature", () => {
     const inherited = { PATH: "/bin", FC_PATH: "stale", FC_SEED: "9", MONITOR_FUZZ_REPORT: "/user/file", NODE_OPTIONS: "--cpu-prof", PI_LOOP_FUZZ_PROFILE_DIR: "/user/profile", SECRET: "not metadata" };
     const plan = buildChildPlan(options, "/repo", "/owned", inherited);
     expect(plan.binary).toBe(process.execPath);
-    expect(plan.args).toEqual(expect.arrayContaining(["/repo/node_modules/vitest/vitest.mjs", "test/property/monitor-inactivity.property.test.ts", "--maxWorkers=1", "--no-file-parallelism", "--reporter=default", "--reporter=json"]));
-    expect(plan.env).toMatchObject({ FC_NUM_RUNS: "3", FC_SEED: "130363", PI_LOOP: "off", PI_LOOP_SCOPE: "memory", MONITOR_INACTIVITY_REPORT: "/owned/campaign.json", PI_LOOP_FUZZ_PROFILE_DIR: "/owned" });
+    expect(plan.args).toEqual(expect.arrayContaining([join("/repo", "node_modules/vitest/vitest.mjs"), "test/property/monitor-inactivity.property.test.ts", "--maxWorkers=1", "--no-file-parallelism", "--reporter=default", "--reporter=json"]));
+    expect(plan.env).toMatchObject({ FC_NUM_RUNS: "3", FC_SEED: "130363", PI_LOOP: "off", PI_LOOP_SCOPE: "memory", MONITOR_INACTIVITY_REPORT: join("/owned", "campaign.json"), PI_LOOP_FUZZ_PROFILE_DIR: "/owned" });
     expect(plan.env.FC_PATH).toBeUndefined();
     expect(plan.env.MONITOR_FUZZ_REPORT).toBeUndefined();
     expect(plan.env.NODE_OPTIONS).toBeUndefined();
