@@ -4,5 +4,5 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "test/property/**/*.ts", "benchmarks/**/*.ts"]
+  "include": ["src/**/*.ts", "test/property/**/*.ts", "benchmarks/**/*.ts", "test/startup-profiling.test.ts", "test/fuzz-profiling.test.ts"]
 }
