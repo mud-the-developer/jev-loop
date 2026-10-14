@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { build } from "esbuild";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +10,36 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const rootDirectory = fileURLToPath(new URL("..", import.meta.url));
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "pi-loop-package-"));
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
+async function assertFactoryReadiness(factory, api, external) {
+  const previous = { loop: process.env.PI_LOOP, scope: process.env.PI_LOOP_SCOPE };
+  process.env.PI_LOOP = "off";
+  process.env.PI_LOOP_SCOPE = "memory";
+  const bus = new EventEmitter();
+  const hooks = new Map();
+  const tools = new Map();
+  const events = { emit: (name, data) => bus.emit(name, data), on: (name, handler) => { bus.on(name, handler); return () => bus.off(name, handler); } };
+  if (external) events.on(api.TASKS_RPC.ping, request => queueMicrotask(() => events.emit(api.replyChannel(api.TASKS_RPC.ping, request.requestId), { success: true, data: { version: api.PROTOCOL_VERSION, provider: "package-control" } })));
+  const pi = { events, on: (name, handler) => { hooks.set(name, [...(hooks.get(name) ?? []), handler]); }, registerTool: tool => tools.set(tool.name, tool), registerCommand() {}, sendMessage() {}, sendUserMessage() {} };
+  const ctx = { cwd: temporaryDirectory, hasUI: false, isIdle: () => true, hasPendingMessages: () => false, sessionManager: { getSessionId: () => "package-control" }, ui: { setStatus() {}, setWidget() {}, notify() {} } };
+  const dispatch = async name => { for (const handler of hooks.get(name) ?? []) await handler({}, ctx); };
+  try {
+    factory(pi);
+    const ping = await api.rpcProbe(events, api.TASKS_RPC.ping, 1000);
+    assert.equal(ping?.version, api.PROTOCOL_VERSION, "factory-time current-protocol task RPC remains discoverable");
+    await new Promise(resolve => setImmediate(resolve));
+    await dispatch("session_start");
+    assert.equal(tools.has("TaskCreate"), !external, "provider selection determines initial native task tools");
+    const prefix = [...tools.values()].map(tool => ({ name: tool.name, parameters: tool.parameters, description: tool.description, promptGuidelines: tool.promptGuidelines }));
+    await dispatch("turn_start");
+    assert.deepEqual([...tools.values()].map(tool => ({ name: tool.name, parameters: tool.parameters, description: tool.description, promptGuidelines: tool.promptGuidelines })), prefix, "first-turn schemas/guidelines do not change after session_start");
+    for (const name of ["LoopCreate", "MonitorCreate", "WorkflowCreate", "WorkflowClaim", "WorkflowTransition"]) assert(tools.has(name), `${name} remains available`);
+  } finally {
+    await dispatch("session_shutdown");
+    if (previous.loop === undefined) delete process.env.PI_LOOP; else process.env.PI_LOOP = previous.loop;
+    if (previous.scope === undefined) delete process.env.PI_LOOP_SCOPE; else process.env.PI_LOOP_SCOPE = previous.scope;
+  }
+}
 
 try {
   const rawReport = execFileSync(npmCommand, ["pack", "--json", "--ignore-scripts", "--pack-destination", temporaryDirectory], {
@@ -43,6 +75,10 @@ try {
   const packedApi = await import(pathToFileURL(join(temporaryDirectory, "package", "dist", "api.js")).href);
   assert.equal(typeof packedRoot.default, "function", "packed root must load as the Pi extension");
   assert.equal(typeof packedApi.TaskStore, "function", "packed api must load TaskStore");
+  await assertFactoryReadiness(packedRoot.default, packedApi, false);
+  await assertFactoryReadiness(packedRoot.default, packedApi, true);
+  const graph = await build({ absWorkingDir: join(temporaryDirectory, "package"), entryPoints: ["dist/index.js"], bundle: true, platform: "node", format: "esm", packages: "external", metafile: true, write: false, logLevel: "silent" });
+  assert(Object.keys(graph.metafile.inputs).length <= 5, "compiled entry must not restore the eager many-file internal graph");
   assert.equal(typeof packedApi.diagnoseWorkflowGraph, "function", "packed api must expose graph diagnostics");
   assert.deepEqual(packedApi.diagnoseWorkflowGraph({
     definition: { version: 1, initialState: "work", states: { work: { prompt: "Work" } } },
