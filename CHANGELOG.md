@@ -6,6 +6,20 @@
 
 * **tasks:** register the native task tools at `session_start` instead of six seconds after startup. A prompt sent inside that window used to go out with the pre-registration tool set, and the next request carried four more tools plus their prompt guidelines, so the request prefix changed once per session and every provider-side prompt cache missed (a full ~22k-token re-prefill on llama-server). The timer stays as a backstop and an external `pi-tasks` that answered the startup ping still wins.
 
+## [0.7.18](https://github.com/trvon/pi-loop/compare/pi-loop-v0.7.17...pi-loop-v0.7.18) (2026-10-14)
+
+
+### Bug Fixes
+
+* **monitor:** fence workflow attachment races ([1b7b343](https://github.com/trvon/pi-loop/commit/1b7b3433253b011a11420ff6acd966a09d894f03))
+* **profiling:** use portable preload URLs ([fa9179f](https://github.com/trvon/pi-loop/commit/fa9179f642667f63b2788907917b4914900c479e))
+
+
+### Performance Improvements
+
+* bundle startup and profile fuzz workers ([fc241b4](https://github.com/trvon/pi-loop/commit/fc241b4860ec5797b78057f323ab120a1b6610e3))
+* reduce startup module graph and profile fuzz workers ([fdbdf90](https://github.com/trvon/pi-loop/commit/fdbdf903fdc7385de16291e8ad949529ff99e2c6))
+
 ## [0.7.17](https://github.com/trvon/pi-loop/compare/pi-loop-v0.7.16...pi-loop-v0.7.17) (2026-10-06)
 
 
