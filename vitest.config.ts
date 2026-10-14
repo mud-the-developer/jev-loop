@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    ...(process.env.PI_LOOP_FUZZ_PROFILE_DIR ? { setupFiles: ["./benchmarks/fuzz-profile-setup.ts"] } : {}),
     include: ["test/**/*.test.{ts,mjs}"],
     exclude: ["node_modules", "dist"],
     // CI runners are slower than local; 15s gives real-child-process

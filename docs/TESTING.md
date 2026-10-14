@@ -39,6 +39,8 @@ Lint currently reports two established optional-chain warnings; new warnings are
 | Live E2E | `npm run test:e2e` | Pi RPC/model conformance |
 | Benchmarks | `npm run bench` | Fixed core workloads |
 | CPU profile | `npm run profile:core` | V8 profile plus checksummed metadata |
+| Startup profile | `npm run profile:startup` | Fresh-process CLI timing and separate CPU samples |
+| Fuzz profile | `npm run profile:fuzz` | Allowlisted property-worker CPU capture and campaign evidence |
 
 Unit tests use Vitest, fake timers for schedules, in-memory stores for pure behavior, temporary files for persistence/restart, and one shared Pi event-bus mock.
 
@@ -180,7 +182,33 @@ npm run bench:compare
 npm run profile:core
 ```
 
-`npm run bench` prints a table of throughput, mean latency, and margin of error. `bench:baseline` writes those results to `.artifacts/benchmarks/baseline.json`, and `bench:compare` reports the throughput change of a fresh run against that baseline. Compare benchmarks only on the same machine, Node version, architecture, timezone, and power state. Profiles are written to `.artifacts/profiles/`; load the `.cpuprofile` in a V8-compatible viewer. Shared benchmark workloads live in `benchmarks/workloads.ts`.
+Core workloads live in `benchmarks/workloads.ts`. `bench:baseline` writes `.artifacts/benchmarks/baseline.json`; `bench:compare` reports throughput changes. Load `.cpuprofile` files in a V8-compatible viewer. Compare only the same machine, Node version, architecture, timezone, and power state.
+
+### Startup
+
+Keep the prior compiled `dist` tree for comparison. Both builds must resolve the same host dependencies.
+
+```bash
+npm run profile:startup -- --baseline /path/to/prior/dist/index.js --candidate dist/index.js --profiles
+```
+
+The default is 15 measured rounds after 3 warmups, serial fresh processes, alternating case order. `--rounds` accepts 3–100; `--warmups` accepts 0–10. `--cli` selects a compiled Pi CLI. `--out` selects the artifact root; default `.artifacts/profiles/startup`. Each run owns a unique directory.
+
+`report.json` retains raw wall time, physical child status, CPU/RSS, versions, static graph hashes, paired medians and a seeded bootstrap interval. Owned wrappers require affirmative factory-return receipts. CPU-profile children run separately; their timings do not enter comparisons. Profiles are capped at 64 MiB before write. Static graphs are not observed runtime-loading traces. CLI `--list-models` is not TUI first render or first-request latency. Do not run timing comparisons alongside fuzz campaigns or gates.
+
+### Fuzz workers
+
+```bash
+npm run profile:fuzz -- --suite monitor-runtime --runs 100 --seed 130363
+npm run profile:fuzz -- --suite monitor-runtime --runs 100 --seed 130363 \
+  --test fault-injected --path '0'
+```
+
+Suites: `monitor-runtime`, `monitor-inactivity`, `monitor-native`, `workflow-restart`. Runs and seeds are positive safe integers. The runner caps cases at 1,000; native cases retain their existing cap of 64. Replay requires an explicit seed and a pattern selecting exactly one property, with no control tests. Each invocation runs one serial Vitest child without a shell or retries.
+
+Artifacts default to `.artifacts/profiles/fuzz/<suite>-<unique>/`. `--out` changes the root. `--timeout-ms` defaults to and cannot exceed 600,000. Retained output is capped at 1 MiB per stream; hashes also cover observed discarded bytes. Worker profiles are capped at 64 MiB before write.
+
+`summary.json` links raw campaign/reporter files and checksums. It distinguishes requested, capped, and observed counts. Unreported counters remain `null`. Failed, interrupted, skipped, missing-profile and missing-source-identity runs do not pass. Primary assertion logs survive reporting failures. Profiling is opt-in through `PI_LOOP_FUZZ_PROFILE_DIR`, set by the runner; normal tests do not start an inspector. Capture covers suite hooks in the actual property worker, not startup, the coordinator, or native descendants. Worker RSS is a process-lifetime high-water mark. Native POSIX skips are not Windows passes. Timing and profiles do not certify correctness.
 
 ## Change evidence
 
