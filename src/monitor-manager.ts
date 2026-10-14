@@ -110,7 +110,8 @@ export class MonitorManager {
   private runCallbacks(callbacks: Array<(monitor: MonitorEntry) => void>, monitor: MonitorEntry): void {
     for (const callback of callbacks) {
       try {
-        callback(monitor);
+        // A consumer must not rewrite the recorded outcome or another receipt.
+        callback(structuredClone(monitor));
       } catch (error) {
         if (!isStaleExtensionContextError(error)) console.error(`Monitor #${monitor.id} callback error:`, error);
       }

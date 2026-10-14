@@ -745,7 +745,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
         payload: { id, wait },
       });
       return this.entries.get(id);
-    });
+    }, (entry) => entry !== undefined);
   }
 
   settleWorkflowMonitorWait(
