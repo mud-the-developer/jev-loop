@@ -9,6 +9,21 @@ import { build } from "esbuild";
 import { pairedStartupSummary, preserveStartupCleanup, type StartupSample, startupOptions, summarizeDurations } from "./startup-report.js";
 
 const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
+const unsafeCharMap: Record<string, string> = {
+  "<": "\\u003C",
+  ">": "\\u003E",
+  "/": "\\u002F",
+  "\\": "\\\\",
+  "\b": "\\b",
+  "\f": "\\f",
+  "\n": "\\n",
+  "\r": "\\r",
+  "\t": "\\t",
+  "\0": "\\0",
+  "\u2028": "\\u2028",
+  "\u2029": "\\u2029",
+};
+const escapeUnsafeChars = (value: string) => value.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g, (ch) => unsafeCharMap[ch]!);
 function readJson<T>(path: string, decode: (value: unknown) => T): T {
   try { return decode(JSON.parse(readFileSync(path, "utf8"))); }
   catch (cause) { throw new Error(`Cannot read profiling JSON: ${path}`, { cause }); }
@@ -152,7 +167,7 @@ export async function runStartupProfile(args: string[]) {
     writeFileSync(profiler, `import {Session} from 'node:inspector'; import {writeFileSync} from 'node:fs'; const s=new Session(); s.connect(); const post=m=>new Promise((r,j)=>s.post(m,(e,v)=>e?j(e):r(v))); await post('Profiler.enable'); await post('Profiler.start'); process.once('exit',()=>s.post('Profiler.stop',(e,v)=>{if(e)throw e; const raw=JSON.stringify(v.profile); if(Buffer.byteLength(raw)>${metadata.maximumProfileBytes}) throw new Error('Startup CPU profile exceeds byte limit'); writeFileSync(process.env.PI_LOOP_STARTUP_PROFILE,raw,{flag:'wx'}); s.disconnect();}));\n`);
     for (const [name, target] of Object.entries(targets)) {
       const href = pathToFileURL(target).href;
-      writeFileSync(wrappers[name]!, `import factory from ${JSON.stringify(href)}; import {writeFileSync} from 'node:fs'; export default function(pi){if(typeof factory!=='function')throw new Error('No extension factory'); const value=factory(pi); const receipt=()=>writeFileSync(process.env.PI_LOOP_STARTUP_RECEIPT,JSON.stringify({target:${JSON.stringify(href)},phase:'factory-returned',node:process.version}),{flag:'wx'}); if(value&&typeof value.then==='function')return Promise.resolve(value).then(result=>{receipt();return result;}); receipt();return value;}\n`);
+      writeFileSync(wrappers[name]!, `import factory from ${escapeUnsafeChars(JSON.stringify(href))}; import {writeFileSync} from 'node:fs'; export default function(pi){if(typeof factory!=='function')throw new Error('No extension factory'); const value=factory(pi); const receipt=()=>writeFileSync(process.env.PI_LOOP_STARTUP_RECEIPT,JSON.stringify({target:${escapeUnsafeChars(JSON.stringify(href))},phase:'factory-returned',node:process.version}),{flag:'wx'}); if(value&&typeof value.then==='function')return Promise.resolve(value).then(result=>{receipt();return result;}); receipt();return value;}\n`);
     }
     save();
     for (let round = 0; round < options.rounds + options.warmups; round++) {
