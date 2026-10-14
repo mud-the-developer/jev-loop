@@ -2778,8 +2778,11 @@ describe("monitor tool wrappers", () => {
     expect(result.content[0].text).toContain("not found");
   });
 
-  it("onDone monitor completion delivers a custom message wake", async () => {
-    const { pi, toolMap, sentMessages: sentCustomMessages } = createMockPi();
+  it.each([
+    { title: "onDone monitor completion delivers a custom message wake", command: "echo 'monitor done'" },
+    { title: "onDone delayed completion preserves the custom wake outcome", command: "sleep 1; echo 'monitor done'" },
+  ])("$title", async ({ command }) => {
+    const { pi, toolMap, emittedEvents, sentMessages: sentCustomMessages } = createMockPi();
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -2789,12 +2792,12 @@ describe("monitor tool wrappers", () => {
     expect(monitorCreate?.execute).toBeDefined();
 
     const result = await monitorCreate!.execute?.("1", {
-      command: "echo 'monitor done'",
+      command,
       onDone: "Monitor finished — report results",
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    await new Promise(r => setTimeout(r, 500));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor finished — report results", 0);
 
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain(
@@ -3017,7 +3020,7 @@ describe("monitor tool wrappers", () => {
   }, 10000);
 
   it("onDone monitor completion does not rely on monitor:done event dispatch", async () => {
-    const { pi, toolMap, sentMessages: sentCustomMessages } = createMockPi({ suppressMonitorDoneDispatch: true });
+    const { pi, toolMap, emittedEvents, sentMessages: sentCustomMessages } = createMockPi({ suppressMonitorDoneDispatch: true });
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -3032,7 +3035,7 @@ describe("monitor tool wrappers", () => {
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    await new Promise(r => setTimeout(r, 500));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor finished without event dispatch", 0);
 
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain("Monitor finished without event dispatch");
