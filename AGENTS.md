@@ -1,8 +1,8 @@
-# pi-loop development guide
+# jev-loop development guide
 
 ## Purpose
 
-pi-loop is a Pi extension for scheduled/event-driven re-wakes, self-paced goals, task-driven workflows, bounded subagent orchestration, native fallback tasks, and background process monitoring.
+jev-loop is an independent Pi extension derived from pi-loop 0.7.18, adding English-only JEV inputs, scoped approval, and evidence-gated completion to scheduled/event-driven re-wakes, workflows, tasks, subagent orchestration, and monitoring. The public package is `jev-loop`, and development targets `main`. Preserve the upstream MIT attribution and Git history. Existing `PI_LOOP_*` configuration, store layouts, and RPC wire identifiers remain compatible; do not rename them as a branding edit. This source-only development package is private and has no automatic release workflow; publishing still requires explicit user authorization.
 
 Stack: strict TypeScript 7, ES2022, TypeBox, Vitest, and Biome.
 
@@ -23,7 +23,7 @@ A feature that requires a cross-store workflow/task transaction violates the arc
 
 ```text
 src/index.ts                 extension registration and runtime wiring
-src/api.ts                   supported @trevonistrevon/pi-loop/api surface
+src/api.ts                   supported jev-loop/api surface
 src/types.ts                 loop, workflow, revision, monitor contracts
 src/store.ts                 LoopStore workflow/orchestration atomic mutations
 src/workflow-admission.ts    provider-neutral blocker transition admission
@@ -111,7 +111,7 @@ Task claims use bearer IDs because they cross extension boundaries. Workflow lea
 3. run both RPC suites;
 4. verify the files are byte-identical.
 
-RPC uses request IDs and `<channel>:reply:<requestId>` success/error envelopes. External consumers import only `@trevonistrevon/pi-loop/api`; deep `src/` imports are unsupported.
+RPC uses request IDs and `<channel>:reply:<requestId>` success/error envelopes. External consumers import only `jev-loop/api`; deep `src/` imports are unsupported.
 
 ## Coding conventions
 

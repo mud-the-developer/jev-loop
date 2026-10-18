@@ -1,23 +1,25 @@
 <p align="center">
-<h1 align="center">pi-jev-loop</h1>
+<h1 align="center">jev-loop</h1>
 <h6 align="center">JEV-assisted completion on top of durable Pi loops, workflows, tasks, and monitoring.</h6>
 </p>
 
-A development fork of [pi-loop](https://github.com/trvon/pi-loop), retaining its MIT license and attribution. The npm package name/version remain `@trevonistrevon/pi-loop@0.7.18` for compatibility; this fork has not been released to npm.
+An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.0-dev.0`, source-only and private to prevent npm publication. There is no automatic release workflow; the inherited CHANGELOG records upstream releases, not jev-loop releases.
 
-## Install this fork
+This project focuses on English-only JEV inputs, minimal repeated approval within an authorized scope, and evidence-gated automatic completion. The inherited execution core is retained rather than rewritten.
 
-From this source checkout:
+## Install from source
 
 ```bash
+git clone https://github.com/mud-the-developer/jev-loop.git
+cd jev-loop
 npm ci
 npm run build
 pi install .
 ```
 
-Load this fork **instead of**, not alongside, the upstream extension: both register `/loop` and the same tool names. JEV completion also requires a configured extension exposing the public `jev_decide` tool and Pi 1.2.0's nested-tool API. This MVP's verifier requires POSIX (Linux/macOS); Windows completion fails closed.
+Load jev-loop **instead of**, not alongside, the upstream extension or pi-jev-loop fork: they register `/loop` and the same tool names. Existing `PI_LOOP_*` settings, store layouts, and RPC wire identifiers remain unchanged; sibling extensions import the public API from `jev-loop/api`. JEV completion also requires a configured extension exposing the public `jev_decide` tool and Pi 1.2.0's nested-tool API. This MVP's verifier requires POSIX (Linux/macOS); Windows completion fails closed.
 
-pi-loop runs only while Pi is active. Persisted controller intent is not an always-on worker; ordinary pending wakes and monitor handles/output are memory-only. See the [runtime continuity matrix](./docs/RUNTIME_CONTINUITY.md) before relying on restart or unattended operation.
+jev-loop runs only while Pi is active. Persisted controller intent is not an always-on worker; ordinary pending wakes and monitor handles/output are memory-only. See the [runtime continuity matrix](./docs/RUNTIME_CONTINUITY.md) before relying on restart or unattended operation.
 
 ## Quick start
 

@@ -1,6 +1,6 @@
-# pi-loop usage guide
+# jev-loop usage guide
 
-`pi-loop` re-wakes a pi agent from schedules and events, runs self-paced goal loops, and monitors background commands. This guide covers the operational details; see the [README](../README.md) for installation and a quick start.
+`jev-loop` re-wakes a pi agent from schedules and events, runs self-paced goal loops, and monitors background commands. This guide covers the operational details; see the [README](../README.md) for installation and a quick start.
 
 ## Loops
 
@@ -281,10 +281,10 @@ Task event payloads include `previousStatus`. Transition events report the statu
 
 ## Cross-extension task RPC
 
-External consumers should import only from `@trevonistrevon/pi-loop/api`; deep `src/` imports are blocked by the package export map.
+External consumers should import only from `jev-loop/api`; deep `src/` imports are blocked by the package export map.
 
 ```ts
-import { TASKS_RPC, rpcCall } from "@trevonistrevon/pi-loop/api";
+import { TASKS_RPC, rpcCall } from "jev-loop/api";
 
 const { id, task } = await rpcCall(pi.events, TASKS_RPC.create, {
   subject: "Fix deploy polling",

@@ -1,13 +1,15 @@
 {
-  "name": "@trevonistrevon/pi-loop",
-  "version": "0.7.18",
-  "description": "A Pi extension for scheduled/event-driven re-wakes, durable workflows, subagent orchestration, tasks, and background monitoring.",
-  "author": "trevonistrevon",
+  "name": "jev-loop",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "description": "JEV-assisted agent loops for Pi, with scoped approval and evidence-gated completion.",
+  "author": "mud-the-developer",
+  "contributors": ["trevonistrevon"],
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/trvon/pi-loop.git"
+    "url": "https://github.com/mud-the-developer/jev-loop.git"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -16,6 +18,7 @@
     "pi-package",
     "pi",
     "pi-extension",
+    "jev",
     "loop",
     "cron",
     "monitor",

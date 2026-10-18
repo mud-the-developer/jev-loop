@@ -1,5 +1,5 @@
 /**
- * @trevonistrevon/pi-loop — A pi extension providing cron/event-based agent re-wake loops and background process monitoring.
+ * jev-loop — JEV-assisted completion and durable Pi loop automation, derived from pi-loop.
  *
  * Tools:
  *   LoopCreate    — Create a scheduled or event-triggered re-wake loop

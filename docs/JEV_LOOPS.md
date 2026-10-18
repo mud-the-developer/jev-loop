@@ -152,6 +152,7 @@ sandbox: commands can have side effects and inherit the Pi process environment.
 Do not use secrets in the policy or evidence summary. Ordinary mandatory
 permissions can still request approval. Pi must be running for loops to execute.
 
-The original pi-loop extension and this fork must not both register `/loop`
-and the same tool names in one session. Packaging/README should identify this
-fork and retain upstream license/attribution; no npm release is authorized.
+The original pi-loop extension, the pi-jev-loop fork, and jev-loop must not
+register `/loop` and the same tool names together. jev-loop is an independent
+repository/package, retaining upstream Git history and MIT attribution. The
+source-only development package is private; no npm release is authorized.

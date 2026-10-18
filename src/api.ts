@@ -1,6 +1,6 @@
 /**
  * Public API surface for sibling extensions (imported as
- * `@trevonistrevon/pi-loop/api`). Everything else under src/ is internal —
+ * `jev-loop/api`). Everything else under src/ is internal —
  * the package `exports` map deliberately blocks deep imports.
  */
 export {

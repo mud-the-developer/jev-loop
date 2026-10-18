@@ -1,15 +1,17 @@
-# Testing pi-loop
+# Testing jev-loop
 
 ## Setup
 
 ```bash
-git clone https://github.com/trvon/pi-loop.git
-cd pi-loop
-npm install
+git clone https://github.com/mud-the-developer/jev-loop.git
+cd jev-loop
+npm ci
 npm run hooks:install
 ```
 
-Contributions use focused branches and signed, thematic commits. Open the first pull request against `master`; dependent pull requests target their predecessor branch. Run the local gate at every PR tip and relevant checks at each intermediate commit. Push normally with hooks; do not rewrite published stack history. Contributions are MIT licensed.
+Contributions use focused branches and signed, thematic commits. Open the first pull request against `main`; dependent pull requests target their predecessor branch. Run the local gate at every PR tip and relevant checks at each intermediate commit. Push normally with hooks; do not rewrite published stack history. Contributions are MIT licensed.
+
+The source-only development package is private and has no automated release or npm publication workflow. CI targets `main` and pull requests. POSIX JEV completion acceptance tests are not Windows-success claims: Windows runs the fail-closed rejection test instead. Publishing requires separate explicit authorization.
 
 ## Local gate
 

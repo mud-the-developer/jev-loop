@@ -10,7 +10,16 @@ const directories: string[] = [];
 afterEach(() => { vi.useRealTimers(); for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function file() { const dir = mkdtempSync(join(tmpdir(), "jev-loops-")); directories.push(dir); return join(dir, "loops.json"); }
 
-describe("opt-in JEV loop public-tool acceptance (product hypothesis)", () => {
+it.skipIf(process.platform !== "win32")("rejects unsupported Windows completion before approval or process effects", async () => {
+  const h = fixture();
+  expect(text(await h.create())).toContain("POSIX");
+  expect(h.store.list()).toEqual([]);
+  expect(h.confirm).not.toHaveBeenCalled();
+  expect(h.exec).not.toHaveBeenCalled();
+  expect(h.executeTool).not.toHaveBeenCalled();
+});
+
+describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool acceptance (product hypothesis)", () => {
   it("ordinary-loop control completes without approval, verification, or JEV", async () => {
     const h = fixture();
     await h.create({ completion: undefined });

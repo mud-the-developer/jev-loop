@@ -1,8 +1,8 @@
-# pi-loop reference
+# jev-loop reference
 
 ## Authority boundaries
 
-pi-loop separates controller, standalone-task, worker-execution, and monitor authorities:
+jev-loop separates controller, standalone-task, worker-execution, and monitor authorities:
 
 | Domain | Authority | Storage |
 | --- | --- | --- |
@@ -115,7 +115,7 @@ pi-loop probes external `pi-tasks` through protocol-v2 RPC. When unavailable, th
 
 ## Graph convergence warnings
 
-Workflow summaries and `/loop` inspection show up to three warning witnesses, with an explicit omitted count. `diagnoseWorkflowGraph(run)` from `@trevonistrevon/pi-loop/api` returns full structured witnesses for closed nonterminal components, nonterminal dead ends, and a current-state terminal route cut off by already-exhausted destinations. It reuses outcome availability rules and does not mutate or reject workflows.
+Workflow summaries and `/loop` inspection show up to three warning witnesses, with an explicit omitted count. `diagnoseWorkflowGraph(run)` from `jev-loop/api` returns full structured witnesses for closed nonterminal components, nonterminal dead ends, and a current-state terminal route cut off by already-exhausted destinations. It reuses outcome availability rules and does not mutate or reject workflows.
 
 These are warning-only structural and point-in-time checks, not a liveness proof or a prerequisite engine. A reachable exit is not mandatory; an intentional ongoing cycle may still be valid. Diagnostics do not simulate future attempt increments, leases, evidence admission, fire/expiry limits, or future revisions. Revise only when finite completion is intended, preserving the existing revision/transition authority checks.
 
@@ -149,7 +149,7 @@ Monitor recovery across Pi process death is not implemented.
 
 RPC uses request/reply events with `requestId` and `<channel>:reply:<requestId>` envelopes. `PROTOCOL_VERSION` gates capability. The native task RPC server registers at extension initialization and disables itself when an external provider is active.
 
-External consumers import only `@trevonistrevon/pi-loop/api`. Deep `src/` imports are unsupported.
+External consumers import only `jev-loop/api`. Deep `src/` imports are unsupported.
 
 ## Limits and recovery gaps
 

@@ -64,8 +64,8 @@ try {
   assert(paths.includes("docs/JEV_LOOPS.md"), "tarball must include the linked JEV loop contract");
   assert(!paths.some((path) => path.startsWith("src/")), "tarball must not publish src/");
 
-  const root = await import("@trevonistrevon/pi-loop");
-  const api = await import("@trevonistrevon/pi-loop/api");
+  const root = await import("jev-loop");
+  const api = await import("jev-loop/api");
   assert.equal(typeof root.default, "function", "root export must be the Pi extension");
   assert.equal(typeof api.TaskStore, "function", "api export must expose TaskStore");
 
@@ -88,7 +88,7 @@ try {
 
   const consumer = join(temporaryDirectory, "package", "legacy-consumer.mts");
   writeFileSync(consumer, `
-import type { WorkflowRevisionFailure, WorkflowRevisionFailureCode } from "@trevonistrevon/pi-loop/api";
+import type { WorkflowRevisionFailure, WorkflowRevisionFailureCode } from "jev-loop/api";
 export const legacy: WorkflowRevisionFailureCode = "revision_limit_reached";
 export function handlesLegacy(failure: WorkflowRevisionFailure): boolean {
   switch (failure.code) {
