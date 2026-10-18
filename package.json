@@ -70,6 +70,7 @@
     "test:watch": "vitest",
     "test:e2e": "npm run test:e2e:reminder && npm run test:e2e:workflow && npm run test:e2e:backlog && npm run test:e2e:routing && npm run test:e2e:orchestration",
     "test:e2e:reminder": "bash test/e2e/reminder-injection.sh",
+    "test:e2e:jev": "node --import tsx test/e2e/jev-loop-operator.mjs",
     "test:e2e:workflow": "npm run build && node test/e2e/workflow-conformance.mjs",
     "test:e2e:backlog": "npm run build && node test/e2e/backlog-action-first.mjs",
     "test:e2e:routing": "npm run build && node test/e2e/controller-routing-conformance.mjs",

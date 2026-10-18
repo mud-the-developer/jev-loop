@@ -192,6 +192,45 @@ describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool accep
     await h.complete(); expect(h.store.list()).toEqual([]);
   });
 
+  it("cancellation stops and drains owned verification before acknowledgement", async () => {
+    const h = fixture(); await h.create();
+    const wait = deferred<Awaited<ReturnType<typeof h.exec>>>(); h.exec.mockReturnValueOnce(wait.promise);
+    const reviewing = h.complete();
+    await vi.waitFor(() => expect(h.exec).toHaveBeenCalledTimes(1));
+    let acknowledged = false;
+    const cancelling = h.call("LoopDelete", { id: "1" }).then(result => { acknowledged = true; return result; });
+    try {
+      await Promise.resolve();
+      expect(h.exec.mock.calls[0]![2].signal.aborted).toBe(true);
+      expect(acknowledged).toBe(false);
+      expect(h.store.get("1")).toBeUndefined();
+    } finally {
+      wait.resolve({ code: 0, killed: true, stdout: "", stderr: "" });
+      await Promise.all([reviewing, cancelling]);
+    }
+    expect(acknowledged).toBe(true);
+    expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("conditional cancellation rejects the wrong creation identity without mutation", async () => {
+    const path = file(); const h = fixture(path); await h.create(); const before = structuredClone(h.store.get("1")!);
+    const bytes = readFileSync(path, "utf8");
+    expect(Reflect.apply(h.store.delete, h.store, ["1", { createdAt: before.createdAt, completionId: "stale-controller" }])).toBe(false);
+    expect(h.store.get("1")).toEqual(before);
+    expect(readFileSync(path, "utf8")).toBe(bytes);
+    expect(Reflect.apply(h.store.delete, h.store, ["1", { createdAt: before.createdAt, completionId: before.completionId }])).toBe(true);
+    expect(h.store.get("1")).toBeUndefined();
+  });
+
+  it("a late provider reply cannot resurrect canceled work", async () => {
+    const h = fixture(); await h.create(); const reply = deferred<any>(); h.executeTool.mockReturnValueOnce(reply.promise);
+    const reviewing = h.complete(); await vi.waitFor(() => expect(h.executeTool).toHaveBeenCalledTimes(1));
+    await h.call("LoopDelete", { id: "1" });
+    expect(h.executeTool.mock.calls[0]![2].signal.aborted).toBe(true);
+    reply.resolve(outcome(recommendation())); await reviewing;
+    expect(h.store.get("1")).toBeUndefined(); expect(h.executeTool).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects concurrent review before duplicate verifier or provider effects", async () => {
     const h = fixture(); await h.create(); const wait = deferred<Awaited<ReturnType<typeof h.exec>>>();
     h.exec.mockReturnValueOnce(wait.promise); const first = h.complete();

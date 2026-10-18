@@ -887,10 +887,11 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     return tombstone;
   }
 
-  delete(id: string): boolean {
+  delete(id: string, expected?: Pick<LoopEntry, "createdAt" | "completionId">): boolean {
     return this.withLock(() => {
       const entry = this.entries.get(id);
-      if (!entry || (entry.orchestration && hasUnconfirmedDispatches(entry.orchestration))) return false;
+      if (!entry || (entry.orchestration && hasUnconfirmedDispatches(entry.orchestration))
+        || (expected && (entry.createdAt !== expected.createdAt || entry.completionId !== expected.completionId))) return false;
       this.applyReducerEvent({
         type: "LOOP_DELETED",
         at: Date.now(),
@@ -900,7 +901,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
         payload: { id },
       });
       return true;
-    });
+    }, Boolean);
   }
 
   private expireEntryUnlocked(id: string, now: number): ExpiredLoopRecord | undefined {

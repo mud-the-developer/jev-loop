@@ -44,7 +44,7 @@ interface LoopStoreLike extends CompletionStore {
     expected: { status: LoopEntry["status"]; iteration: number; updatedAt: number; completionSnapshot?: string },
   ): boolean;
   getDeletionTombstone(id: string): { reason: string; pendingCount?: number } | undefined;
-  delete(id: string): boolean;
+  delete(id: string, expected?: Pick<LoopEntry, "createdAt" | "completionId">): boolean;
 }
 
 interface TriggerSystemLike {
@@ -234,6 +234,18 @@ export function registerLoopTools(options: LoopToolsOptions) {
     onDynamicLoopActivated,
     cancelOrchestration,
   } = options;
+
+  async function cancelLoop(entry: LoopEntry): Promise<boolean> {
+    if (!entry.completion) return false;
+    const store = getStore();
+    const trigger = getTriggerSystem();
+    const generation = options.getGeneration?.();
+    if (!store.delete(entry.id, { createdAt: entry.createdAt, completionId: entry.completionId })) return false;
+    trigger.remove(entry.id);
+    await completionRuntime.cancel(entry);
+    if (store === getStore() && generation === options.getGeneration?.()) updateWidget();
+    return true;
+  }
 
   pi.registerTool({
     name: "LoopCreate",
@@ -588,7 +600,10 @@ export function registerLoopTools(options: LoopToolsOptions) {
     }),
     async execute(_toolCallId, params) {
       const { id, action } = params;
-      const existing = getStore().get(id);
+      const operationStore = getStore();
+      const operationTrigger = getTriggerSystem();
+      const operationGeneration = options.getGeneration?.();
+      const existing = operationStore.get(id);
       if (existing?.orchestration) {
         const orchestrationAction: "pause" | "delete" = action === "pause" ? "pause" : "delete";
         const result = await cancelOrchestration?.(id, orchestrationAction) ?? "rejected";
@@ -599,8 +614,13 @@ export function registerLoopTools(options: LoopToolsOptions) {
         });
       }
 
+      if (existing?.completion && action !== "pause") {
+        const deleted = await cancelLoop(existing);
+        const message = deleted ? `JEV loop #${id} canceled; local review drained. Remote service quiescence is not inferred.` : `JEV loop #${id} changed; inspect LoopList before canceling.`;
+        return textResult(message, { kind: "loop", action: "delete", tone: deleted ? "success" : "warning", summary: deleted ? `JEV loop #${id} canceled` : "Cancellation rejected", expanded: [message] });
+      }
       if (action === "pause") {
-        const entry = getStore().pause(id);
+        const entry = operationStore.pause(id);
         if (!entry) {
           const tombstone = getStore().getDeletionTombstone(id);
           if (tombstone) {
@@ -612,15 +632,16 @@ export function registerLoopTools(options: LoopToolsOptions) {
             kind: "loop", action: "pause", tone: "error", summary: `Loop #${id} not found`, expanded: ["Use LoopList to find valid loop IDs."],
           }));
         }
-        getTriggerSystem().remove(id);
-        updateWidget();
+        operationTrigger.remove(id);
+        if (entry.completion) await completionRuntime.cancel(entry);
+        if (operationStore === getStore() && operationGeneration === options.getGeneration?.()) updateWidget();
         return Promise.resolve(textResult(`Loop #${id} paused`, {
           kind: "loop", action: "pause", tone: "warning", summary: `Loop #${id} paused`, expanded: ["Use LoopList to inspect paused loops."],
         }));
       }
 
-      getTriggerSystem().remove(id);
-      const deleted = getStore().delete(id);
+      operationTrigger.remove(id);
+      const deleted = operationStore.delete(id);
       updateWidget();
       if (deleted) {
         return Promise.resolve(textResult(`Loop #${id} deleted`, {
@@ -638,5 +659,5 @@ export function registerLoopTools(options: LoopToolsOptions) {
       }));
     },
   });
-  return completionRuntime;
+  return { ...completionRuntime, cancelLoop };
 }
