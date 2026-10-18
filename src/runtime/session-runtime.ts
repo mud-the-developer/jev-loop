@@ -37,6 +37,7 @@ export interface SessionRuntimeOptions {
   pumpOrchestrations: () => Promise<void>;
   shutdownOrchestrations: () => Promise<void>;
   shutdownMonitors: () => Promise<void>;
+  shutdownCompletionReviews?: () => Promise<void>;
   hasPendingTasks: () => Promise<number>;
   cleanDoneTasks: () => Promise<void>;
   isContextCurrent: () => boolean;
@@ -74,6 +75,7 @@ export function registerSessionRuntimeHooks(options: SessionRuntimeOptions): voi
     pumpOrchestrations,
     shutdownOrchestrations,
     shutdownMonitors,
+    shutdownCompletionReviews,
     hasPendingTasks,
     cleanDoneTasks,
     isContextCurrent,
@@ -238,12 +240,13 @@ export function registerSessionRuntimeHooks(options: SessionRuntimeOptions): voi
 
   pi.on("session_shutdown", async () => {
     advanceSessionGeneration();
+    const completionShutdown = shutdownCompletionReviews?.();
     clearWorkflowMonitorWaits();
     getTriggerSystem().stop();
     stopHeartbeat();
     releaseTaskBacklogWakes();
     notificationRuntime.clear("session_shutdown");
-    await Promise.all([shutdownMonitors(), shutdownOrchestrations()]);
+    await Promise.all([completionShutdown, shutdownMonitors(), shutdownOrchestrations()]);
     setSessionId(undefined);
     storeUpgraded = false;
     persistedShown = false;
@@ -252,12 +255,13 @@ export function registerSessionRuntimeHooks(options: SessionRuntimeOptions): voi
 
   pi.on("session_switch" as never, async (event: SessionSwitchEvent, ctx: ExtensionContext) => {
     const generation = advanceSessionGeneration();
+    const completionShutdown = shutdownCompletionReviews?.();
     clearWorkflowMonitorWaits();
     getTriggerSystem().stop();
     stopHeartbeat();
     notificationRuntime.clear("session_switch");
     releaseTaskBacklogWakes();
-    await Promise.all([shutdownMonitors(), shutdownOrchestrations()]);
+    await Promise.all([completionShutdown, shutdownMonitors(), shutdownOrchestrations()]);
     setSessionId(undefined);
     storeUpgraded = false;
     persistedShown = false;

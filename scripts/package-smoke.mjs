@@ -61,6 +61,7 @@ try {
   assert(paths.includes("dist/api.js"), "tarball must include dist/api.js");
   assert(paths.includes("dist/api.d.ts"), "tarball must include dist/api.d.ts");
   assert(paths.includes("docs/RUNTIME_CONTINUITY.md"), "tarball must include the linked runtime continuity guide");
+  assert(paths.includes("docs/JEV_LOOPS.md"), "tarball must include the linked JEV loop contract");
   assert(!paths.some((path) => path.startsWith("src/")), "tarball must not publish src/");
 
   const root = await import("@trevonistrevon/pi-loop");

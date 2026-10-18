@@ -140,7 +140,7 @@ function formatCount(count: number, noun: string): string {
 }
 
 function isStatusVisibleLoop(loop: LoopEntry): boolean {
-  if ((loop.workflow || loop.orchestration) && loop.status === "paused") return true;
+  if ((loop.workflow || loop.orchestration || loop.completion) && loop.status === "paused") return true;
   if (loop.status !== "active") return false;
   if (loop.recurring) return true;
   return !(loop.trigger.type === "event" && loop.trigger.source === "monitor:done");

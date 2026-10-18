@@ -22,6 +22,12 @@ export interface LoopReducerState {
 
 export type LoopReducerEvent =
   | {
+    type: "LOOP_COMPLETION_REVIEW";
+    at: number;
+    source: ReducerSource;
+    payload: { id: string; review?: LoopEntry["completionReview"] };
+  }
+  | {
     type: "LOOP_CREATED";
     at: number;
     source: ReducerSource;
@@ -35,6 +41,9 @@ export type LoopReducerEvent =
       taskBacklog?: boolean;
       readOnly?: boolean;
       maxFires?: number;
+      completion?: LoopEntry["completion"];
+      completionId?: string;
+      completionCwd?: string;
       dynamic?: Partial<DynamicLoopState>;
       workflow?: WorkflowDefinition;
       actor?: WorkflowRuntimeActor;
@@ -219,6 +228,12 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
       readOnly: event.payload.readOnly,
       maxFires: event.payload.maxFires,
       fireCount: 0,
+      ...(event.payload.completion ? {
+        completion: structuredClone(event.payload.completion),
+        completionId: event.payload.completionId,
+        completionCwd: event.payload.completionCwd,
+        completionVersion: 0,
+      } : {}),
       dynamic: event.payload.trigger.type === "dynamic" || event.payload.dynamic
         ? {
             goal: event.payload.dynamic?.goal ?? event.payload.prompt,
@@ -247,6 +262,15 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
   const current = state.loopsById[id];
   if (!current) return { state, effects: [] };
 
+  if (current.completion && event.type === "LOOP_RESUMED" && atMaxFires(current)) return { state, effects: [] };
+  if (current.completion && event.type === "LOOP_DYNAMIC_UPDATED"
+    && (event.payload.prompt !== undefined || event.payload.dynamic.goal !== undefined || event.payload.dynamic.doneCriteria !== undefined)) return { state, effects: [] };
+  if (current.completion && event.type === "LOOP_FIRED" && (current.status !== "active" || atMaxFires(current) || event.at >= current.expiresAt)) return { state, effects: [] };
+  if (current.completion && event.type === "LOOP_MAX_FIRES_REACHED") {
+    return reduceLoopState(state, { type: "LOOP_PAUSED", at: event.at, source: event.source,
+      payload: { id, kind: "controller_limit", reason: "loop fire cap reached" } });
+  }
+
   if (
     event.type === "LOOP_DELETED"
     || event.type === "LOOP_MAX_FIRES_REACHED"
@@ -263,6 +287,14 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
 
   const next = cloneState(state);
   const loop: LoopEntry = { ...current };
+  if (event.type === "LOOP_COMPLETION_REVIEW") {
+    if (!current.completion) return { state, effects: [] };
+    if (event.payload.review) loop.completionReview = event.payload.review;
+    else delete loop.completionReview;
+  } else if (loop.completion) {
+    loop.completionVersion = (loop.completionVersion ?? 0) + 1;
+    delete loop.completionReview;
+  }
   let workflowRevision: WorkflowRevisionSummary | undefined;
 
   if (event.type === "LOOP_PAUSED") {

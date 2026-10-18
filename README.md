@@ -1,13 +1,21 @@
 <p align="center">
-<h1 align="center">@trevonistrevon/pi-loop</h1>
-<h6 align="center">Durable agent loops, workflows, tasks, subagent orchestration, and background monitoring for Pi.</h6>
+<h1 align="center">pi-jev-loop</h1>
+<h6 align="center">JEV-assisted completion on top of durable Pi loops, workflows, tasks, and monitoring.</h6>
 </p>
 
-## Install
+A development fork of [pi-loop](https://github.com/trvon/pi-loop), retaining its MIT license and attribution. The npm package name/version remain `@trevonistrevon/pi-loop@0.7.18` for compatibility; this fork has not been released to npm.
+
+## Install this fork
+
+From this source checkout:
 
 ```bash
-pi install npm:@trevonistrevon/pi-loop
+npm ci
+npm run build
+pi install .
 ```
+
+Load this fork **instead of**, not alongside, the upstream extension: both register `/loop` and the same tool names. JEV completion also requires a configured extension exposing the public `jev_decide` tool and Pi 1.2.0's nested-tool API. This MVP's verifier requires POSIX (Linux/macOS); Windows completion fails closed.
 
 pi-loop runs only while Pi is active. Persisted controller intent is not an always-on worker; ordinary pending wakes and monitor handles/output are memory-only. See the [runtime continuity matrix](./docs/RUNTIME_CONTINUITY.md) before relying on restart or unattended operation.
 
@@ -47,6 +55,33 @@ Run a finite batch of independent subagent work after the parent becomes idle:
 OrchestrationCreate goal="Review release readiness" work='[{"prompt":"Inspect API compatibility","agentType":"Explore"},{"prompt":"Review rollout risks","agentType":"Plan"}]' concurrency=2
 OrchestrationGet id="1"
 ```
+
+## JEV-assisted completion
+
+Opt in through `LoopCreate`; ordinary `/loop` usage is unchanged. The parent prepares every JEV-bound natural-language field in English, even when the user's request is Korean.
+
+```json
+{
+  "trigger": "idle",
+  "triggerType": "idle",
+  "prompt": "필수 테스트가 통과하도록 수정하고 검증해",
+  "maxFires": 5,
+  "expiresIn": "1h",
+  "completion": {
+    "goal": "Make the required tests pass.",
+    "criteria": ["The required automated tests pass."],
+    "verification": {
+      "command": "npm",
+      "args": ["test"],
+      "description": "The project's required automated test suite."
+    }
+  }
+}
+```
+
+Approve the exact bounded setup once in the native dialog. When ready, call `LoopUpdate` with `id`, `status="completed"`, and a separate non-sensitive English `completionEvidence` summary. The fixed verifier must actually pass and JEV must recommend `met` before automatic completion. `unmet` permits bounded rework; `unknown` holds completion. Verifier output, original prompts, and local state/metrics are not forwarded to JEV. The parent must exclude secrets and private artifacts from its summaries.
+
+No repeated setup approval for ordinary rework in the same live scope. Restart, cancellation, invalid execution, or a provider error requires fresh approval; existing mandatory permission/transmission gates remain. A fire-cap pause is not success and cannot extend its budget. [Contract, examples, evidence and limitations](./docs/JEV_LOOPS.md).
 
 ## What it provides
 

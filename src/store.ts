@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { validateCompletionPolicy } from "./jev-completion.js";
 import { DEFAULT_LOOP_EXPIRY_MS, expiresAtFromDuration, parseLoopDurationMs } from "./loop-expiry.js";
 import { atMaxFires, type LoopReducerEffect, type LoopReducerEvent, type LoopReducerState, reduceLoopState } from "./loop-reducer.js";
 import { applyOrchestrationEvent, hasUnconfirmedDispatches, normalizeOrchestrationStops, type OrchestrationEvent, validateOrchestrationDefinition, validatePersistedOrchestration } from "./orchestration-reducer.js";
@@ -90,7 +92,17 @@ function validateControllerDomain(entry: {
   autoTask?: boolean;
   taskBacklog?: boolean;
   trigger: Trigger;
+  completion?: LoopEntry["completion"];
+  recurring?: boolean;
+  maxFires?: number;
 }): void {
+  if (entry.completion !== undefined) {
+    validateCompletionPolicy(entry.completion);
+    if (entry.trigger.type !== "dynamic" || !entry.recurring || entry.autoTask || entry.taskBacklog || entry.workflow || entry.orchestration
+      || !Number.isSafeInteger(entry.maxFires) || entry.maxFires! < 1) {
+      throw new Error("Completion requires a recurring idle loop, explicit finite positive maxFires, and no task/workflow/orchestration ownership.");
+    }
+  }
   if (entry.autoTask && entry.taskBacklog) {
     throw new Error("Malformed loop controller: auto-task and task-backlog behavior are mutually exclusive");
   }
@@ -108,6 +120,9 @@ function validateControllerDomain(entry: {
 function normalizeLoopEntry(entry: LoopEntry): LoopEntry {
   const pause = normalizePauseRecord(entry);
   validateControllerDomain(entry);
+  if (entry.completion && (!entry.completionId || !entry.completionCwd || !Number.isSafeInteger(entry.completionVersion) || entry.completionVersion! < 0)) {
+    throw new Error("Malformed completion controller identity");
+  }
   return {
     ...entry,
     ...(pause ? { pause } : {}),
@@ -203,7 +218,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     );
   }
 
-  create(trigger: Trigger, prompt: string, opts: { recurring: boolean; autoTask?: boolean; taskBacklog?: boolean; readOnly?: boolean; maxFires?: number; expiresIn?: string; dynamic?: Partial<DynamicLoopState>; workflow?: WorkflowDefinition; actor?: WorkflowRuntimeActor; orchestration?: { definition: OrchestrationDefinitionInput; owner: OrchestrationActor } }): LoopEntry {
+  create(trigger: Trigger, prompt: string, opts: { recurring: boolean; autoTask?: boolean; taskBacklog?: boolean; readOnly?: boolean; maxFires?: number; expiresIn?: string; completion?: LoopEntry["completion"]; completionCwd?: string; completionExpiresAt?: number; dynamic?: Partial<DynamicLoopState>; workflow?: WorkflowDefinition; actor?: WorkflowRuntimeActor; orchestration?: { definition: OrchestrationDefinitionInput; owner: OrchestrationActor } }): LoopEntry {
     return this.withLock(() => {
       if (this.entries.size >= MAX_LOOPS) {
         throw new Error(`Maximum of ${MAX_LOOPS} loops reached. Delete some before creating new ones.`);
@@ -219,7 +234,10 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
       }
       const now = Date.now();
       const expiryMs = opts.expiresIn === undefined ? this.defaultExpiryMs : parseLoopDurationMs(opts.expiresIn);
-      const expiresAt = expiresAtFromDuration(now, expiryMs);
+      const expiresAt = opts.completion ? opts.completionExpiresAt ?? expiresAtFromDuration(now, expiryMs) : expiresAtFromDuration(now, expiryMs);
+      if (opts.completion && (!opts.completionCwd || !Number.isSafeInteger(expiresAt) || expiresAt <= now)) {
+        throw new Error("Completion requires an exact working directory and unexpired setup; recreate with fresh approval.");
+      }
       this.applyReducerEvent({
         type: "LOOP_CREATED",
         at: now,
@@ -233,6 +251,9 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
           taskBacklog: opts.taskBacklog,
           readOnly: opts.readOnly,
           maxFires: opts.maxFires,
+          completion: opts.completion,
+          completionId: opts.completion ? randomUUID() : undefined,
+          completionCwd: opts.completionCwd,
           dynamic: opts.dynamic,
           workflow: opts.workflow,
           actor: opts.actor,
@@ -242,6 +263,28 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
       });
       return this.entries.get(String(this.nextId - 1))!;
     });
+  }
+
+  previewExpiresAt(expiresIn?: string): number {
+    return expiresAtFromDuration(Date.now(), expiresIn === undefined ? this.defaultExpiryMs : parseLoopDurationMs(expiresIn));
+  }
+
+  reserveCompletionReview(id: string, snapshot: string, review: NonNullable<LoopEntry["completionReview"]>): LoopEntry | undefined {
+    return this.withLock(() => {
+      const entry = this.entries.get(id);
+      if (!entry?.completion || JSON.stringify(entry) !== snapshot || Date.now() >= entry.expiresAt
+        || (entry.completionReview && Date.now() < entry.completionReview.expiresAt)) return undefined;
+      this.applyReducerEvent({ type: "LOOP_COMPLETION_REVIEW", at: Date.now(), source: "tool", payload: { id, review } });
+      return structuredClone(this.entries.get(id));
+    }, result => result !== undefined);
+  }
+
+  releaseCompletionReview(id: string, reviewId: string): void {
+    this.withLock(() => {
+      if (this.entries.get(id)?.completionReview?.id !== reviewId) return false;
+      this.applyReducerEvent({ type: "LOOP_COMPLETION_REVIEW", at: Date.now(), source: "tool", payload: { id } });
+      return true;
+    }, Boolean);
   }
 
   mutateOrchestration(id: string, event: OrchestrationEvent): { entry?: LoopEntry; applied: boolean; reason?: string } {
@@ -285,6 +328,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     return this.withLock(() => {
       const entry = this.entries.get(id);
       if (!entry || Date.now() >= entry.expiresAt || isTerminalWorkflowRun(entry.workflow)) return undefined;
+      if (entry.completion && atMaxFires(entry)) return undefined;
       if (entry.pause?.kind === "controller_limit"
         && (atMaxFires(entry) || (entry.workflow && atWorkflowStateFireLimit(entry.workflow)))) {
         return undefined;
@@ -353,7 +397,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     });
     const fired = this.entries.get(id)!;
     const limitReached = atMaxFires(fired) || Boolean(fired.workflow && atWorkflowStateFireLimit(fired.workflow));
-    const deletedDelivery = limitReached && !fired.workflow && !fired.taskBacklog
+    const deletedDelivery = limitReached && !fired.workflow && !fired.taskBacklog && !fired.completion
       ? structuredClone(fired)
       : undefined;
     if (limitReached) this.settleFireLimitUnlocked(fired, now);
@@ -367,7 +411,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
 
   private settleFireLimitUnlocked(entry: LoopEntry, at: number): void {
     const workflowLimitReached = atMaxFires(entry);
-    if (!entry.workflow && !entry.taskBacklog) {
+    if (!entry.workflow && !entry.taskBacklog && !entry.completion) {
       this.applyReducerEvent({
         type: "LOOP_DELETED",
         at,
@@ -410,6 +454,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     return this.withLock(() => {
       const current = this.entries.get(id);
       if (!current) return { entry: undefined, changedFields: [] };
+      if (current.completion && Object.keys(fields).length > 0) throw new Error("Completion controller intent is immutable; explicitly cancel and recreate with approval.");
 
       const candidate = {
         ...current,
@@ -457,6 +502,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     return this.withLock(() => {
       const entry = this.entries.get(id);
       if (!entry) return undefined;
+      if (entry.completion && (fields.prompt !== undefined || fields.dynamic.goal !== undefined || fields.dynamic.doneCriteria !== undefined)) return undefined;
       if (expectedWorkflow && (entry.createdAt !== expectedWorkflow.createdAt
         || entry.status !== expectedWorkflow.status
         || !entry.workflow
@@ -484,6 +530,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     return this.withLock(() => {
       const entry = this.entries.get(id);
       if (!entry || Date.now() >= entry.expiresAt || entry.trigger.type !== "dynamic" || !entry.dynamic || entry.workflow) return undefined;
+      if (entry.completion && (atMaxFires(entry) || fields.prompt !== undefined || fields.dynamic.goal !== undefined || fields.dynamic.doneCriteria !== undefined)) return undefined;
       if (expected && (
         entry.status !== expected.status
         || entry.dynamic.iteration !== expected.iteration
@@ -516,7 +563,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
   stopDynamic(
     id: string,
     status: "completed" | "paused",
-    expected: { status: LoopEntry["status"]; iteration: number; updatedAt: number },
+    expected: { status: LoopEntry["status"]; iteration: number; updatedAt: number; completionSnapshot?: string },
   ): boolean {
     return this.withLock(() => {
       const entry = this.entries.get(id);
@@ -524,6 +571,9 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
         || entry.status !== expected.status
         || entry.dynamic.iteration !== expected.iteration
         || entry.updatedAt !== expected.updatedAt) return false;
+      if (entry.completion && status === "completed" && (!entry.completionReview || Date.now() >= entry.completionReview.expiresAt
+        || JSON.stringify(entry) !== expected.completionSnapshot
+        || (entry.status !== "active" && !(entry.pause?.kind === "controller_limit" && atMaxFires(entry))))) return false;
       const at = Date.now();
       this.applyReducerEvent(status === "completed"
         ? {
@@ -543,7 +593,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
             payload: { id, kind: "administrative" },
           });
       return true;
-    });
+    }, Boolean);
   }
 
   reviseWorkflow(

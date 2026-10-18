@@ -62,6 +62,7 @@ export default function (pi: ExtensionAPI) {
   let _latestCtx: ExtensionContext | undefined;
   let _sessionId: string | undefined;
   let orchestrationRuntime: SubagentOrchestrationRuntime | undefined;
+  let shutdownCompletionReviews = async () => {};
 
   const getScopeOptions = () => ({ piLoopEnv, loopScope });
   const defaultLoopExpiryMs = resolveDefaultLoopExpiryMs(process.env.PI_LOOP_EXPIRES_IN);
@@ -334,7 +335,7 @@ export default function (pi: ExtensionAPI) {
     if (atMaxFires(current)) {
       debug(`loop #${current.id} — reached maxFires ${current.maxFires}, retiring`);
       triggerSystem.remove(current.id);
-      if (current.workflow || current.taskBacklog) store.pause(current.id, "controller_limit", "loop fire cap reached");
+      if (current.workflow || current.taskBacklog || current.completion) store.pause(current.id, "controller_limit", "loop fire cap reached");
       else store.delete(current.id);
       widget.update();
       return false;
@@ -484,6 +485,7 @@ export default function (pi: ExtensionAPI) {
     pumpOrchestrations: () => orchestrationRuntime!.pump(),
     shutdownOrchestrations: () => orchestrationRuntime!.shutdown(),
     shutdownMonitors: () => monitorManager.shutdown(),
+    shutdownCompletionReviews: () => shutdownCompletionReviews(),
     hasPendingTasks,
     cleanDoneTasks,
     isContextCurrent: isCurrentExtensionContext,
@@ -530,8 +532,10 @@ export default function (pi: ExtensionAPI) {
     if (data.monitorId) discardMonitorStarted(data.monitorId);
   });
 
-  registerLoopTools({
+  const completionRuntime = registerLoopTools({
     pi,
+    getGeneration: () => sessionGeneration,
+    isContextCurrent: (ctx) => _sessionId === ctx.sessionManager.getSessionId() && isCurrentExtensionContext(),
     getStore: () => store,
     getTriggerSystem: () => triggerSystem,
     getScheduler: () => scheduler,
@@ -546,6 +550,7 @@ export default function (pi: ExtensionAPI) {
     },
     cancelOrchestration: (id, action) => orchestrationRuntime!.cancel(id, action),
   });
+  shutdownCompletionReviews = completionRuntime.shutdown;
 
   registerSubagentOrchestrationTools({
     pi,

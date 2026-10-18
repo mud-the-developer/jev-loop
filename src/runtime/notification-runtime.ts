@@ -273,6 +273,19 @@ export function createNotificationRuntime(options: NotificationRuntimeOptions): 
       if (dynamic?.state) lines.push(`State: ${dynamic.state}`);
       if (dynamic?.metrics) lines.push(`Metrics: ${dynamic.metrics}`);
       if (dynamic?.doneCriteria) lines.push(`Done criteria: ${dynamic.doneCriteria}`);
+      const completion = getLoop?.(loopId)?.completion;
+      if (completion) {
+        lines.push(
+          `JEV completion goal: ${completion.goal}`,
+          `Completion criteria: ${JSON.stringify(completion.criteria)}`,
+          `Verifier coverage: ${completion.verification.description}`,
+          'Use LoopUpdate status="completed" with separate non-sensitive English completionEvidence to request fixed verification and JEV review. Do not call JEV separately or use LoopDelete to claim completion; deletion is explicit cancellation.',
+          data.fireLimitReached
+            ? "The fire cap is exhausted: no continue/resume. This final iteration may submit verified completion before expiry; reaching the cap is not success."
+            : "Persist unfinished work with LoopUpdate continue within the original budget. Unmet means rework; unknown needs permitted additional evidence, never success.",
+        );
+        return lines.join("\n");
+      }
       lines.push(
         `Loop lifecycle: Loop #${loopId} is the persistent controller for the overall goal. Do not call LoopDelete after this iteration.`,
         "Before ending this turn, call LoopUpdate exactly once: use status=\"completed\" only when the overall goal and done criteria are satisfied; use status=\"continue\" when any work remains, with state/metrics and optional nextInterval; use status=\"paused\" only when genuinely blocked. Omit nextInterval for an idle-driven rewake.",

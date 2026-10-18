@@ -1,8 +1,12 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { verifyCompletion } from "../completion-verifier.js";
+import { COMPLETION_EVIDENCE_LIMIT, CompletionPolicySchema, validateCompletionPolicy } from "../jev-completion.js";
 import { parseLoopDurationMs } from "../loop-expiry.js";
 import { formatTrigger } from "../loop-format.js";
 import { parseInterval } from "../loop-parse.js";
+import { atMaxFires } from "../loop-reducer.js";
+import { type CompletionStore, createJevLoopRuntime } from "../runtime/jev-loop-runtime.js";
 import type { OrchestrationCancellation } from "../runtime/subagent-orchestration-runtime.js";
 import type { LoopEntry, Trigger } from "../types.js";
 import { orchestrationCancellationMessage, orchestrationProgressLabel, orchestrationStatusLabel } from "../ui/orchestration-presentation.js";
@@ -12,7 +16,8 @@ import { getActiveWorkflowStateLoop } from "../workflow-reducer.js";
 import { displayRows, textResult } from "./tool-result.js";
 import { formatWorkflowSummary } from "./workflow-tools.js";
 
-interface LoopStoreLike {
+interface LoopStoreLike extends CompletionStore {
+  previewExpiresAt?(expiresIn?: string): number;
   list(): LoopEntry[];
   get(id: string): LoopEntry | undefined;
   create(trigger: Trigger, prompt: string, opts: {
@@ -22,6 +27,9 @@ interface LoopStoreLike {
     readOnly?: boolean;
     maxFires?: number;
     expiresIn?: string;
+    completion?: LoopEntry["completion"];
+    completionCwd?: string;
+    completionExpiresAt?: number;
     dynamic?: Partial<NonNullable<LoopEntry["dynamic"]>>;
   }): LoopEntry;
   pause(id: string): LoopEntry | undefined;
@@ -33,7 +41,7 @@ interface LoopStoreLike {
   stopDynamic(
     id: string,
     status: "completed" | "paused",
-    expected: { status: LoopEntry["status"]; iteration: number; updatedAt: number },
+    expected: { status: LoopEntry["status"]; iteration: number; updatedAt: number; completionSnapshot?: string },
   ): boolean;
   getDeletionTombstone(id: string): { reason: string; pendingCount?: number } | undefined;
   delete(id: string): boolean;
@@ -68,6 +76,9 @@ export interface LoopToolsOptions {
   isTaskSystemReady: () => boolean;
   onDynamicLoopActivated?: (entry: LoopEntry) => void;
   cancelOrchestration?: (id: string, action: "pause" | "delete") => Promise<OrchestrationCancellation>;
+  getGeneration?: () => number;
+  isContextCurrent?: (ctx: ExtensionToolContext) => boolean;
+  verify?: typeof verifyCompletion;
 }
 
 function validateTrigger(trigger: Trigger): string | null {
@@ -119,6 +130,7 @@ interface LoopUpdateParams {
   state?: string;
   metrics?: string;
   doneCriteria?: string;
+  completionEvidence?: string;
   nextInterval?: string;
   prompt?: string;
 }
@@ -164,7 +176,7 @@ function continueDynamicLoop(
   const updated = store.continueDynamic(params.id, {
     prompt: params.prompt,
     dynamic: {
-      goal: params.prompt ?? entry.dynamic.goal,
+      ...(entry.completion ? {} : { goal: params.prompt ?? entry.dynamic.goal }),
       state: params.state,
       metrics: params.metrics,
       doneCriteria: params.doneCriteria,
@@ -208,7 +220,8 @@ function stopDynamicLoop(
   };
 }
 
-export function registerLoopTools(options: LoopToolsOptions): void {
+export function registerLoopTools(options: LoopToolsOptions) {
+  const completionRuntime = createJevLoopRuntime(options);
   const {
     pi,
     getStore,
@@ -227,7 +240,7 @@ export function registerLoopTools(options: LoopToolsOptions): void {
     label: "LoopCreate",
     renderCall: renderToolCall("Loop", (args) => `create · ${String(toolArg(args, "prompt") ?? "scheduled work").slice(0, 56)}`),
     renderResult: renderToolResult,
-    description: `Create a persistent cron, event, hybrid, or idle loop for recurring checks, event reactions, or autonomous backlog processing; never use shell sleep loops. Polling needs maxFires; observation-only loops should be readOnly. A completed iteration, unchanged result, or temporarily empty check is not a reason to delete the loop.`,
+    description: "Create cron/event/hybrid/idle loops; no shell sleep loops. Polling needs maxFires; observations use readOnly. A completed iteration, unchanged result, or temporarily empty check is not a reason to delete the loop. Optional completion: idle, finite maxFires, English policy, fixed verifier, native approval. JEV advice is not proof/permission.",
     promptGuidelines: [
       "Prefer event triggers; use triggerType `idle` with trigger `idle` for agent-paced continuation of one evolving goal that does not need WorkflowCreate phases/outcomes.",
       "For autonomous backlogs use event `tasks:created`, recurring true, taskBacklog true, and bounded maxFires; never combine taskBacklog with autoTask or manually delete its loop.",
@@ -244,9 +257,10 @@ export function registerLoopTools(options: LoopToolsOptions): void {
       readOnly: Type.Optional(Type.Boolean({ description: "Restrict the agent to read-only tools when this loop fires (default: false)", default: false })),
       maxFires: Type.Optional(Type.Integer({ description: "Auto-stop after N fires. Prevents infinite token burn on polling loops.", minimum: 1 })),
       expiresIn: Type.Optional(Type.String({ description: "Lifetime for this new loop, e.g. 12h or 14d; overrides PI_LOOP_EXPIRES_IN" })),
+      completion: Type.Optional(CompletionPolicySchema),
     }),
-    async execute(_toolCallId, params) {
-      const { trigger: triggerInput, prompt, recurring, autoTask, taskBacklog, triggerType, debounceMs, readOnly, maxFires, expiresIn } = params;
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      const { trigger: triggerInput, prompt, recurring, autoTask, taskBacklog, triggerType, debounceMs, readOnly, maxFires, expiresIn, completion } = params.completion === undefined ? params : structuredClone(params);
 
       let trigger: Trigger;
       const inferred = triggerType ?? inferTriggerType(triggerInput);
@@ -311,17 +325,34 @@ export function registerLoopTools(options: LoopToolsOptions): void {
 
       let entry: LoopEntry;
       try {
-        entry = getStore().create(trigger, prompt, {
+        const store = getStore();
+        let approved: Awaited<ReturnType<typeof completionRuntime.setup>> | undefined;
+        let completionExpiresAt: number | undefined;
+        if (completion !== undefined) {
+          validateCompletionPolicy(completion);
+          if (trigger.type !== "dynamic" || recurring === false || autoTask || taskBacklog || !Number.isSafeInteger(maxFires) || maxFires! < 1) {
+            throw new Error("Completion requires a recurring idle loop, explicit finite positive maxFires, and no autoTask/taskBacklog; correct the setup and retry.");
+          }
+          completionExpiresAt = store.previewExpiresAt?.(expiresIn);
+          if (completionExpiresAt === undefined) throw new Error("Completion storage unavailable; use a supported LoopStore.");
+          approved = await completionRuntime.setup(ctx, completion, maxFires!, completionExpiresAt, signal);
+          approved.check();
+        }
+        entry = store.create(trigger, prompt, {
           recurring: taskBacklog ? true : recurring ?? (inferred !== "event"),
           autoTask,
           taskBacklog,
           readOnly,
           maxFires: maxFires ?? (taskBacklog ? 25 : undefined),
           expiresIn,
+          completion,
+          completionCwd: completion ? ctx.cwd : undefined,
+          completionExpiresAt,
           dynamic: trigger.type === "dynamic"
             ? { goal: prompt, iteration: 0 }
             : undefined,
         });
+        approved?.remember(entry);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return textResult(message, {
@@ -352,7 +383,7 @@ export function registerLoopTools(options: LoopToolsOptions): void {
         }
       }
 
-      const bootstrapped = await maybeBootstrapTaskLoop(entry);
+      const bootstrapped = completion ? false : await maybeBootstrapTaskLoop(entry);
       updateWidget();
 
       const triggerDesc = trigger.type === "dynamic" ? "idle-driven" : formatTrigger(trigger, "create");
@@ -424,6 +455,12 @@ export function registerLoopTools(options: LoopToolsOptions): void {
         if (entry.pause) line += ` [pause:${entry.pause.kind}]`;
         if (entry.autoTask) line += " [auto-task]";
         if (entry.taskBacklog) line += " [backlog-worker]";
+        if (entry.completion) {
+          line += ` [JEV completion] goal: ${entry.completion.goal}`;
+          line += ` criteria: ${JSON.stringify(entry.completion.criteria)}`;
+          line += ` verifier coverage: ${entry.completion.verification.description}`;
+          line += " · Complete through LoopUpdate with English completionEvidence; deletion is cancellation.";
+        }
         if (entry.orchestration) {
           line += ` [orchestration:${orchestrationStatusLabel(entry.orchestration.status)}]`;
           line += ` ${orchestrationProgressLabel(entry.orchestration)}`;
@@ -459,17 +496,18 @@ export function registerLoopTools(options: LoopToolsOptions): void {
     label: "LoopUpdate",
     renderCall: renderToolCall("Loop", (args) => `update · #${String(toolArg(args, "id") ?? "?")} · ${String(toolArg(args, "status") ?? "continue")}`),
     renderResult: renderToolResult,
-    description: `Update a dynamic loop exactly once after each wake. Use "continue" with state/metrics and optional nextInterval whenever work remains, including empty or unchanged iterations; "completed" only when done; "paused" only for a genuine blocker or required user authority. Persist before notifying the user; never use LoopDelete to finish an iteration.`,
+    description: 'Update a dynamic loop once per wake. Persist before notifying: continue with state/metrics while work remains, even empty/unchanged; completed only when done; paused only for blockers/required authority. nextInterval delays a wake; never use LoopDelete to finish an iteration. JEV needs English completionEvidence, fixed verification and supported advice; no secrets/source/logs.',
     parameters: Type.Object({
       id: Type.String({ description: "Dynamic loop ID to update" }),
       status: Type.String({ description: "continue, completed, or paused", enum: ["continue", "completed", "paused"] }),
       state: Type.Optional(Type.String({ description: "Current progress/state summary" })),
       metrics: Type.Optional(Type.String({ description: "Current metrics/check results" })),
       doneCriteria: Type.Optional(Type.String({ description: "Definition of done for the dynamic loop" })),
+      completionEvidence: Type.Optional(Type.String({ minLength: 1, maxLength: COMPLETION_EVIDENCE_LIMIT, description: "Non-sensitive English semantic summary for opted-in completion only; untrusted evidence, not a success flag" })),
       nextInterval: Type.Optional(Type.String({ description: "When to wake next, e.g. 3m, 30s, 1h" })),
       prompt: Type.Optional(Type.String({ description: "Optional updated goal/prompt text" })),
     }),
-    execute(_toolCallId, params: LoopUpdateParams) {
+    async execute(_toolCallId, params: LoopUpdateParams, signal, _onUpdate, ctx) {
       const store = getStore();
       const triggerSystem = getTriggerSystem();
       const entry = store.get(params.id);
@@ -496,6 +534,19 @@ export function registerLoopTools(options: LoopToolsOptions): void {
         }));
       }
 
+      if (entry.completion) {
+        const reject = (message: string) => textResult(message, { kind: "loop", action: "update", tone: "error", summary: "Completion held", expanded: [message] });
+        if (params.prompt !== undefined || params.doneCriteria !== undefined || Object.hasOwn(params, "completion")) {
+          return reject("Completion goal/policy is immutable; explicitly cancel and recreate with approval if it must change.");
+        }
+        if (params.status === "continue" && atMaxFires(entry)) return reject("Controller fire cap exhausted; inspect or cancel, never continue/resume. Verified final completion remains permitted before expiry.");
+        if (params.status === "completed") {
+          const result = await completionRuntime.review(structuredClone(entry), params.completionEvidence, ctx, signal);
+          if (result.completed) { triggerSystem.remove(entry.id); updateWidget(); }
+          const output = textResult(result.message, { kind: "loop", action: "update", tone: result.completed ? "success" : "warning", summary: result.completed ? "Verified completion" : "Completion held", expanded: [result.message] });
+          return "askUser" in result && result.askUser ? { ...output, details: { ...output.details, askUser: result.askUser } } : output;
+        }
+      }
       const dynamicEntry = entry as LoopEntry & { dynamic: NonNullable<LoopEntry["dynamic"]> };
       const outcome = params.status === "continue"
         ? continueDynamicLoop(params, dynamicEntry, store, triggerSystem)
@@ -587,4 +638,5 @@ export function registerLoopTools(options: LoopToolsOptions): void {
       }));
     },
   });
+  return completionRuntime;
 }

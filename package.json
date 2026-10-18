@@ -24,6 +24,7 @@
   "files": [
     "dist/",
     "docs/USAGE_GUIDE.md",
+    "docs/JEV_LOOPS.md",
     "docs/REFERENCE.md",
     "docs/RUNTIME_CONTINUITY.md",
     "docs/TESTING.md",

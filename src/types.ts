@@ -337,6 +337,11 @@ export interface LoopEntry {
   dynamic?: DynamicLoopState;
   workflow?: WorkflowRunState;
   orchestration?: OrchestrationState;
+  completion?: import("./jev-completion.js").CompletionPolicy;
+  completionId?: string;
+  completionCwd?: string;
+  completionVersion?: number;
+  completionReview?: { id: string; expiresAt: number };
 }
 
 export type WorkflowMonitorSettlement =

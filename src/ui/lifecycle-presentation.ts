@@ -18,7 +18,8 @@ const STORAGE_LABELS = {
 } satisfies Record<LoopStorageScope, string>;
 
 export function canResumeFromInspection(entry: LoopEntry, now = Date.now()): boolean {
-  if (entry.status !== "paused" || now >= entry.expiresAt || entry.orchestration || isTerminalWorkflowRun(entry.workflow)) return false;
+  if (entry.status !== "paused" || now >= entry.expiresAt || entry.orchestration || isTerminalWorkflowRun(entry.workflow)
+    || (entry.completion && atMaxFires(entry))) return false;
   return !(entry.pause?.kind === "controller_limit"
     && (atMaxFires(entry) || Boolean(entry.workflow && atWorkflowStateFireLimit(entry.workflow))));
 }
@@ -42,6 +43,9 @@ function controllerAuthority(entry: LoopEntry): string {
 function nextAction(entry: LoopEntry, now: number): string {
   if (now >= entry.expiresAt) return "Inspect retained work; expired controllers cannot resume. Recreate only if authorized.";
   if (entry.orchestration) return "Inspect OrchestrationGet before cancellation or deletion; do not replay uncertain work or use generic resume.";
+  if (entry.completion && atMaxFires(entry)) return entry.pause?.kind === "controller_limit"
+    ? "Fire cap exhausted: no continue/resume. Submit final LoopUpdate completed with English completionEvidence before expiry, or explicitly cancel; the cap is not success."
+    : "Fire cap exhausted and administratively paused: no continue/resume or automatic completion. Inspect retained work; replace only with explicit approval.";
   if (isTerminalWorkflowRun(entry.workflow)) return "Inspect the terminal outcome; do not resume.";
   if (entry.status === "paused") {
     if (!canResumeFromInspection(entry, now)) {
@@ -64,7 +68,9 @@ function nextAction(entry: LoopEntry, now: number): string {
     }
     return "Inspect available outcomes with LoopList; transition only with evidence.";
   }
-  if (entry.dynamic?.awaitingUpdate) return "Persist progress with LoopUpdate; use continue while work remains.";
+  if (entry.dynamic?.awaitingUpdate) return entry.completion
+    ? "Persist progress with LoopUpdate continue; completion requires English completionEvidence, fixed verification and JEV review."
+    : "Persist progress with LoopUpdate; use continue while work remains.";
   if (entry.trigger.type === "event") return "Await the declared event; registration is not proof of wake delivery.";
   return "Observe the next fire; wakes deliver when Pi is idle.";
 }
