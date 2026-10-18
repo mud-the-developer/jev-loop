@@ -112,6 +112,8 @@ The `/jev-loop` command is an opt-in usability feature, not a replacement for
 - At most one setup waits in memory. Cancellation, abort, stale generation,
   session/store/cwd replacement, and missing/disabled JEV suppress its handoff.
   No early follow-up message, persistent approval, new timer or backend fallback.
+  A committed `/tree` move also aborts old command dialogs and clears pending
+  setup, even though the session ID stays the same. A vetoed move does not.
 - `status` only inspects existing JEV controllers and pending setup. It must not
   claim work, start verification, call JEV, or imply a live review is running
   solely because a reservation exists.
@@ -138,6 +140,12 @@ command hands the goal to the parent only when idle; it does not itself create
 or approve a controller. Before handoff, cancel revokes the memory-only pending
 request. After handoff but before creation, reject the native setup approval or
 abort the agent turn; the command does not claim to cancel unobserved work.
+
+Tree navigation revokes only unfinished command interactions: already-created
+controllers remain session-wide with the same frozen policy and expiry. A new
+branch is not a budget renewal. Existing live approval for that unchanged scope
+is not needlessly requested again; restart and scope replacement still require
+fresh approval.
 
 For advanced tools, see the [README's LoopCreate example](../README.md#jev-assisted-completion).
 `completion` is optional and available only to recurring idle loops with an
@@ -182,7 +190,10 @@ fake JEV tool; it makes no external model request. Tests do not prove live JEV
 accuracy, actual terminal-dialog usability, Windows cleanup, unattended
 execution, or containment of a command that deliberately escapes its process
 group. The goal-first SDK tests also use a synthetic parent and JEV; they do
-not measure natural-language planning accuracy. An operator-mediated live
+not measure natural-language planning accuracy. They exercise actual process
+exits `[7,0]` during repair, one setup approval, and a permission-blocked JEV
+call. Real SDK `navigateTree` cases fence stale input/cancel dialogs, preserve
+vetoed navigation, and retain the unchanged session-wide goal scope. An operator-mediated live
 attempt reached the SDK setup approval, but approval was canceled/expired:
 no JEV request was relayed and no positive live result is claimed. See
 [TESTING.md](./TESTING.md) for the full gate and operator procedure.

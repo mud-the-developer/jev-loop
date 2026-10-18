@@ -26,7 +26,10 @@ const controller = new AbortController();
 const pending = new Map();
 let input = "";
 function abort() {
+  if (controller.signal.aborted) return;
   controller.abort();
+  input = "";
+  process.stdin.pause();
   for (const request of pending.values()) request.reject(new Error("Operator bridge canceled"));
   pending.clear();
 }
@@ -46,10 +49,11 @@ function request(type, payload, signal) {
 }
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => {
+  if (controller.signal.aborted) return;
   input += chunk;
-  if (input.length > 32768) { abort(); return; }
-  let end;
-  while ((end = input.indexOf("\n")) >= 0) {
+  if (Buffer.byteLength(input, "utf8") > 32768) { abort(); return; }
+  while (input.includes("\n")) {
+    const end = input.indexOf("\n");
     const line = input.slice(0, end).replace(/\r$/, ""); input = input.slice(end + 1);
     if (!line) continue;
     try {

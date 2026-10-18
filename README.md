@@ -34,6 +34,8 @@ Start one self-paced JEV-assisted goal in your own language, then inspect or can
 
 `/jev-loop` without arguments opens the native menu. The parent prepares the English criteria and a known fixed verifier; the exact setup is approved once before creation. Defaults proposed for approval are five fires and one hour, not unlimited execution. If the agent is busy, setup waits only in memory and `/jev-loop cancel` can revoke it before handoff. No backend is installed or configured automatically.
 
+Moving within `/tree` cancels unfinished setup/dialog interactions from the old branch. Existing controllers stay session-wide with their original policy and budget; canceling a navigation does not cancel a valid dialog.
+
 A sent setup request is not a created loop. Once handed to the parent, reject its setup approval or abort that agent turn if no controller exists yet; cancellation targets only observed JEV controllers. Ordered workflows are outside this entrypoint's completion support. [Detailed boundaries](./docs/JEV_LOOPS.md).
 
 The inherited ordinary command remains available for scheduled, event-driven, or self-paced loops:

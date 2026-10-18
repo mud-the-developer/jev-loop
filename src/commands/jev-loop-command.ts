@@ -29,25 +29,28 @@ function setupMessage(goal: string): string {
 
 export function registerJevLoopCommand(options: Options): void {
   const { pi, getStore } = options;
-  let epoch = 0;
+  let lifecycle = new AbortController();
   let pending: { goal: string; current: () => boolean } | undefined;
-  const clear = () => { epoch++; pending = undefined; };
+  const clear = () => { lifecycle.abort(); lifecycle = new AbortController(); pending = undefined; };
   pi.on("session_start", clear);
   pi.on("session_shutdown", clear);
+  // Tree navigation keeps the session ID and extension instance alive.
+  pi.on("session_tree", clear);
 
-  function capture(ctx: ExtensionCommandContext): () => boolean {
+  function capture(ctx: ExtensionCommandContext) {
     const store = getStore();
     const generation = options.getGeneration();
-    const capturedEpoch = epoch;
     const session = ctx.sessionManager.getSessionId();
     const cwd = ctx.cwd;
-    const signal = ctx.signal;
-    return () => {
+    const caller = ctx.signal;
+    const signal = AbortSignal.any([lifecycle.signal, ...(caller ? [caller] : [])]);
+    const current = () => {
       try {
-        return capturedEpoch === epoch && generation === options.getGeneration() && store === getStore()
-          && session === ctx.sessionManager.getSessionId() && cwd === ctx.cwd && !signal?.aborted && options.isContextCurrent(ctx);
+        return generation === options.getGeneration() && store === getStore()
+          && session === ctx.sessionManager.getSessionId() && cwd === ctx.cwd && !signal.aborted && options.isContextCurrent(ctx);
       } catch { return false; }
     };
+    return { current, signal };
   }
 
   function hasJev(): boolean {
@@ -99,7 +102,7 @@ export function registerJevLoopCommand(options: Options): void {
     ].join("\n"), "info");
   }
 
-  async function cancel(ctx: ExtensionCommandContext, current: () => boolean, id?: string) {
+  async function cancel(ctx: ExtensionCommandContext, current: () => boolean, signal: AbortSignal, id?: string) {
     if (!id && pending?.current()) {
       pending = undefined;
       ctx.ui.notify("Pending setup canceled; no controller was created by this pending request.", "info"); return;
@@ -108,7 +111,7 @@ export function registerJevLoopCommand(options: Options): void {
     let entry = id ? entries.find(item => item.id === id) : undefined;
     if (!id && entries.length) {
       const choices = entries.map(item => `#${item.id} ${item.prompt.replace(/\s+/g, " ").slice(0, 80)}`);
-      const selected = await ctx.ui.select("Cancel a JEV loop", choices);
+      const selected = await ctx.ui.select("Cancel a JEV loop", choices, { signal });
       if (!current() || selected === undefined) return;
       entry = entries[choices.indexOf(selected)];
     }
@@ -123,7 +126,7 @@ export function registerJevLoopCommand(options: Options): void {
   pi.registerCommand("jev-loop", {
     description: "Start a JEV-assisted goal: /jev-loop <goal>. Inspect with status [id], cancel with cancel [id], or open the menu. Setup is not approval.",
     handler: async (args, ctx) => {
-      const current = capture(ctx);
+      const { current, signal } = capture(ctx);
       if (!current()) return;
       if (!ctx.hasUI) { ctx.ui.notify("/jev-loop requires native TUI or RPC UI. No setup was sent.", "warning"); return; }
       try {
@@ -132,18 +135,18 @@ export function registerJevLoopCommand(options: Options): void {
         const control = input.match(/^(status|cancel)(?:\s+(\d+))?$/);
         if (control) {
           if (control[1] === "status") status(ctx, control[2]);
-          else await cancel(ctx, current, control[2]);
+          else await cancel(ctx, current, signal, control[2]);
           return;
         }
         if (/^(status|cancel)(?:\s|$)/.test(input)) { ctx.ui.notify("Use /jev-loop status [id] or /jev-loop cancel [id].", "warning"); return; }
         let goal = input;
         if (!goal) {
-          const action = await ctx.ui.select("JEV loop", ["Start a goal", "Status", "Cancel a loop"]);
+          const action = await ctx.ui.select("JEV loop", ["Start a goal", "Status", "Cancel a loop"], { signal });
           if (!current() || action === undefined) return;
           if (action === "Status") { status(ctx); return; }
-          if (action === "Cancel a loop") { await cancel(ctx, current); return; }
+          if (action === "Cancel a loop") { await cancel(ctx, current, signal); return; }
           if (action !== "Start a goal") { ctx.ui.notify("Choose an offered /jev-loop menu action.", "warning"); return; }
-          goal = (await ctx.ui.input("Goal (your language; the agent prepares English JEV policy)"))?.trim() ?? "";
+          goal = (await ctx.ui.input("Goal (your language; the agent prepares English JEV policy)", undefined, { signal }))?.trim() ?? "";
           if (!current() || !goal) return;
         }
         await start(goal, ctx, current);

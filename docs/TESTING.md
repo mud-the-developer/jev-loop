@@ -56,7 +56,9 @@ backend, and changes no global settings. It is not a physical terminal test.
 
 Its JSONL client must continuously read LF-delimited stdout and keep stdin
 open. Responses use only the current live request ID; wrong/stale IDs abort the
-run. The fixture is bounded to three minutes and one JEV request, not retries.
+run. Incoming buffered JSONL is limited to 32 KiB of UTF-8, not JavaScript
+character count. Abort clears the buffer and stops accepting further input.
+The fixture is bounded to three minutes and one JEV request, not retries.
 
 1. Relay each `extension_ui_request` with method `confirm` to the actual human,
    showing its full title/message. Return `extension_ui_response` with that
@@ -77,12 +79,26 @@ run. The fixture is bounded to three minutes and one JEV request, not retries.
    not passes. Cleanup drains local review and removes the temporary fixture;
    remote model-service quiescence is not inferred.
 
-The automated harness tests exercise default SKIP and refusal with zero
+The automated harness tests exercise default SKIP, refusal, stale IDs,
+truncated/malformed JSON, and ASCII/multibyte oversize input with zero
 verification/JEV calls. They do not auto-approve a live run. The current manual
 attempt reached the real SDK approval request but operator approval was
 canceled/expired; no JEV request was relayed. No live model/terminal acceptance
 is established by that attempt. Preserve bounded result metadata outside
 committed fixtures, not transcripts or secrets.
+
+## Offline UX quality checks
+
+`test/jev-loop-navigation.test.ts` uses the real SDK navigation API, not only
+an injected event. It proves old goal/cancel dialogs cannot act in another
+branch, their native controls receive an abort signal, and vetoed navigation
+does not cancel a valid interaction. Fresh requests still work after the move.
+
+`test/jev-loop-sdk.test.ts` covers actual verifier exits `[7,0]` across repair,
+one synthetic setup approval, and both allowed/blocked JEV dispatch. It also
+continues an already-approved goal after real tree navigation without renewing
+its budget or repeating approval. Parent messages and JEV/UI are synthetic;
+these cases make no external model calls and do not replace live acceptance.
 
 ## Harness review campaigns
 

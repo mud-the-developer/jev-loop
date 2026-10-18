@@ -13,10 +13,13 @@ it("operator acceptance without an explicit client is SKIP, never an automatic a
   expect(result.stdout).not.toContain('"status":"passed"');
 });
 
-it.skipIf(process.platform === "win32")("operator refusal performs no verification, fixture work, or JEV call", async () => {
+it.skipIf(process.platform === "win32").each(["decline", "oversize-ascii", "oversize-utf8", "truncated", "stale", "malformed"])("operator %s input grants no verification, fixture work, or JEV call", async mode => {
   const child = spawn(process.execPath, [...args, "--operator-bridge"], { cwd, stdio: ["pipe", "pipe", "pipe"] });
   const frames: any[] = [];
+  const writeErrors: Error[] = [];
   let buffer = "";
+  // Aborting malformed input can close the pipe before the client flushes it.
+  child.stdin.on("error", error => writeErrors.push(error));
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", chunk => {
     buffer += chunk;
@@ -29,7 +32,12 @@ it.skipIf(process.platform === "win32")("operator refusal performs no verificati
       catch { child.kill("SIGTERM"); return; }
       frames.push(frame);
       if (frame.type === "extension_ui_request") {
-        child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: frame.id, confirmed: false })}\n`);
+        const response = { type: "extension_ui_response", id: frame.id, confirmed: false };
+        if (mode === "truncated") child.stdin.end(JSON.stringify(response).slice(0, -1));
+        else if (mode === "malformed") child.stdin.write("{invalid-json}\n");
+        else if (mode === "stale") child.stdin.write(`${JSON.stringify({ ...response, id: "stale-request" })}\n${JSON.stringify(response)}\n`);
+        else if (mode.startsWith("oversize")) child.stdin.write(`${JSON.stringify({ ...response, padding: mode === "oversize-ascii" ? "x".repeat(33000) : "한".repeat(11000) })}\n`);
+        else child.stdin.write(`${JSON.stringify(response)}\n`);
       }
       if (frame.type === "jev_decision_request") {
         child.stdin.write(`${JSON.stringify({ type: "jev_decision_response", id: frame.id, error: "Unexpected request after refusal" })}\n`);
@@ -41,8 +49,9 @@ it.skipIf(process.platform === "win32")("operator refusal performs no verificati
   try {
     const [code] = await once(child, "close");
     expect(code).toBe(1);
+    if (mode === "decline") expect(writeErrors).toEqual([]);
     expect(frames.filter(frame => frame.type === "extension_ui_request")).toHaveLength(1);
-    expect(frames.find(frame => frame.type === "operator_result")).toMatchObject({ status: "approval_declined", approvals: 0, verificationCodes: [], jevCalls: 0 });
+    expect(frames.find(frame => frame.type === "operator_result")).toMatchObject({ status: mode === "decline" ? "approval_declined" : "held", approvals: 0, verificationCodes: [], jevCalls: 0 });
     expect(frames.some(frame => frame.type === "jev_decision_request")).toBe(false);
   } finally {
     child.stdin.destroy();
