@@ -130,6 +130,17 @@ function normalizeLoopEntry(entry: LoopEntry): LoopEntry {
       || !Number.isSafeInteger(entry.completionVersion) || entry.completionVersion! < 0) {
       throw new Error("Malformed completion controller identity");
     }
+    if (!Number.isSafeInteger(entry.fireCount) || entry.fireCount! < 0 || entry.fireCount! > entry.maxFires!) {
+      throw new Error("Malformed completion fire budget");
+    }
+    const dynamic = entry.dynamic;
+    if (!dynamic || typeof dynamic !== "object" || Array.isArray(dynamic) || typeof dynamic.goal !== "string"
+      || !Number.isSafeInteger(dynamic.iteration) || dynamic.iteration < 0
+      || (dynamic.awaitingUpdate !== undefined && typeof dynamic.awaitingUpdate !== "boolean")
+      || (["state", "metrics", "doneCriteria"] as const).some(field => dynamic[field] !== undefined && typeof dynamic[field] !== "string")
+      || (["nextWakeAt", "lastUpdatedAt"] as const).some(field => dynamic[field] !== undefined && !Number.isSafeInteger(dynamic[field]))) {
+      throw new Error("Malformed completion dynamic progress");
+    }
     const review = entry.completionReview;
     if (review !== undefined && (!review || typeof review !== "object" || Array.isArray(review)
       || !completionString(review.id) || !Number.isSafeInteger(review.expiresAt) || review.expiresAt > entry.expiresAt)) {

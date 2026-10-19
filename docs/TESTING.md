@@ -108,6 +108,14 @@ previous-snapshot recovery, visible failure when both copies are invalid, and
 compatibility controls for ordinary legacy data and expired valid reservations.
 Recovery never invents cwd/identity or restores a grant.
 
+Review regressions also corrupt negative/string/fractional/missing fire counts
+with an intact previous copy, then attempt five fires against a cap of two.
+Only the recorded valid budget may be admitted after recovery. Boundary controls
+preserve an intact exhausted cap and the ordinary legacy missing-counter case.
+A capped record with missing dynamic progress must recover that progress and
+reach the public verified-completion tool; its fresh approval and JEV response
+are synthetic fixture effects, not live acceptance.
+
 The tool suite distinguishes safe verifier/JEV diagnostics from trusted local
 storage errors. Its post-write fault injection performs a real file-backed
 settlement before raising an error, proving callers do not mistake uncertainty
