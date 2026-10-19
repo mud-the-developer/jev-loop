@@ -102,6 +102,16 @@ No model/network is invoked. An isolated rollback fault also ensures cleanup
 uses the original store/dispatcher, not replacement work with the same ID;
 that injected boundary is not a physical-terminal reachability claim.
 
+`test/tasks-command-navigation.test.ts` applies actual SDK navigation to the
+native standalone-task menu, subject/description inputs, status/delete actions
+and claim-token prompt. Committed moves preserve tasks with no event/backlog
+mutation; vetoed moves still act and fresh requests work. Unit controls separate
+cancelled descriptions from blank defaults, fence provider replacement, reject
+unlisted UI selections before token input, and suppress stale acknowledgement
+without undoing a task that was already committed. Task claims/mutation helpers
+and workflow ownership remain unchanged. `test/command-scope.test.ts` verifies
+an invalid context is rejected before a stateful replacement-store resolver.
+
 `test/jev-loop-sdk.test.ts` covers actual verifier exits `[7,0]` across repair,
 one synthetic setup approval, and both allowed/blocked JEV dispatch. It also
 continues an already-approved goal after real tree navigation without renewing

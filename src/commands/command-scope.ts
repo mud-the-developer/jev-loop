@@ -35,8 +35,10 @@ export function createCommandGuard(options: Options, onInvalidate?: () => void) 
       signal,
       current: () => {
         try {
-          return !signal.aborted && store === options.getStore() && generation === options.getGeneration?.()
-            && session === ctx.sessionManager.getSessionId() && cwd === ctx.cwd && options.isContextCurrent?.(ctx) !== false;
+          // A store resolver can bind/create state; reject stale context before calling it.
+          return !signal.aborted && generation === options.getGeneration?.()
+            && session === ctx.sessionManager.getSessionId() && cwd === ctx.cwd && options.isContextCurrent?.(ctx) !== false
+            && store === options.getStore();
         } catch { return false; }
       },
     };
