@@ -187,6 +187,20 @@ There is no claimed dollar cap. Ordinary permission gates can still block a
 nested JEV call. Persisted intent survives only according to the normal storage
 contract; approval is process-local and is never restored from disk.
 
+## Completion packet admission
+
+English goal, all criteria, verifier coverage, exit outcome and evidence share
+the public JEV context bound of 4,000 encoded JSON characters. Individual schema
+limits do not guarantee their escaped combination fits. New setup is rejected
+before approval or creation if even one evidence character cannot fit; no
+criterion or approved text is truncated. A larger actual evidence summary can
+still require shortening within the same total bound.
+
+Existing oversized stored policies remain inspectable/cancellable rather than
+being reclassified as corrupt storage. Their review is held with an explicit
+cancel-and-recreate action because their immutable policy cannot be repaired by
+shortening evidence alone. No approval or verifier/JEV effect is started.
+
 ## Persistence and failure diagnostics
 
 Stored JEV controller identity, working directory, completion-version counter,
@@ -227,7 +241,11 @@ exits `[7,0]` during repair, one setup approval, and a permission-blocked JEV
 call. Real SDK `navigateTree` cases fence stale input/cancel dialogs, preserve
 vetoed navigation, and retain the unchanged session-wide goal scope. An operator-mediated live
 attempt reached the SDK setup approval, but approval was canceled/expired:
-no JEV request was relayed and no positive live result is claimed. See
+no JEV request was relayed and no positive product end-to-end result is claimed.
+A later direct public-tool check observed `jev-1.13.0` return `met`, `unmet` and
+`unknown` for three distinct non-sensitive English fixtures. Those unchanged
+responses passed the production advice parser. This is public-tool conformance,
+not a native-approved controller auto-completion or model-accuracy benchmark. See
 [TESTING.md](./TESTING.md) for the full gate and operator procedure.
 
 ## Operator notes

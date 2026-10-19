@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { VERIFICATION_SUPPORTED, type VerificationOptions, type VerificationResult, verifyCompletion } from "../completion-verifier.js";
-import { COMPLETION_EVIDENCE_LIMIT, type CompletionPolicy, completionPacket, englishSummary, REVIEW_TIMEOUT_MS, readCompletionAdvice, VERIFICATION_TIMEOUT_MS, validateCompletionPolicy } from "../jev-completion.js";
+import { COMPLETION_CONTEXT_LIMIT, COMPLETION_EVIDENCE_LIMIT, type CompletionPolicy, completionPacket, completionPolicyFitsPacket, englishSummary, REVIEW_TIMEOUT_MS, readCompletionAdvice, VERIFICATION_TIMEOUT_MS, validateCompletionPolicy } from "../jev-completion.js";
 import { atMaxFires } from "../loop-reducer.js";
 import type { LoopEntry } from "../types.js";
 
@@ -25,7 +25,7 @@ function approvalText(policy: CompletionPolicy, cwd: string, maxFires: number, e
     "Approve this exact JEV-assisted loop setup for this live session only?",
     JSON.stringify({ goal: policy.goal, criteria: policy.criteria, verification: policy.verification, cwd, maxFires, expiresAt: new Date(expiresAt).toISOString() }, null, 2),
     `Verifier timeout: ${VERIFICATION_TIMEOUT_MS} ms. Review timeout: ${REVIEW_TIMEOUT_MS} ms; neither extends expiry or fires.`,
-    `Disclosure to public jev_decide: English goal, ALL criteria, verifier description, actual exit outcome, and a separate untrusted English progress summary of at most ${COMPLETION_EVIDENCE_LIMIT} characters (packet at most 4000).`,
+    `Disclosure to public jev_decide: English goal, ALL criteria, verifier description, actual exit outcome, and a separate untrusted English progress summary of at most ${COMPLETION_EVIDENCE_LIMIT} characters (packet at most ${COMPLETION_CONTEXT_LIMIT}).`,
     "Caller must supply non-sensitive English prose only: no original prompts, source/code, paths, argv, logs, history or secrets. Local state/metrics and raw verifier output are never collected for JEV.",
     "The command is not sandboxed and inherits the process environment; approve its side effects. Existing tool/permission/transmission gates still apply. JEV is advisory, never permission or proof. Completion requires passed verification AND supported met advice. Nonzero verifier exits permit repair within scope without another setup approval. Provider errors, invalid execution, cancellation and restart require fresh approval.",
   ].join("\n\n");
@@ -86,6 +86,7 @@ export function createJevLoopRuntime(options: Options) {
 
   async function setup(ctx: ExtensionToolContext, policy: CompletionPolicy, maxFires: number, expiresAt: number, caller?: AbortSignal) {
     validateCompletionPolicy(policy);
+    if (!completionPolicyFitsPacket(policy)) throw new Error("Completion policy cannot fit the JEV packet bound with even minimum evidence; shorten the English goal, criteria or verifier description before setup approval.");
     if (!VERIFICATION_SUPPORTED) throw new Error("JEV verification currently requires POSIX process-group cleanup.");
     const operation = scope(ctx, expiresAt, caller);
     try {
@@ -115,6 +116,7 @@ export function createJevLoopRuntime(options: Options) {
     if (busy.has(entry.id)) return held("A completion review is already in progress; wait for its result.");
     const policy = entry.completion!;
     validateCompletionPolicy(policy);
+    if (!completionPolicyFitsPacket(policy)) return held("Completion held: the immutable policy cannot fit the JEV packet bound. Explicitly cancel and recreate with shorter English goal, criteria or verifier description; shortening evidence alone cannot fix this policy.");
     // Reject oversize escaping before approval or a process can start.
     completionPacket(policy, evidence, 0);
     const key = fingerprint(entry);
