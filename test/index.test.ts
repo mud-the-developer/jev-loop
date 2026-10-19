@@ -1046,7 +1046,7 @@ describe("native task fallback", () => {
     expect(loopCommand?.handler).toBeDefined();
 
     const ui = { notify: vi.fn(), select: vi.fn(), input: vi.fn() };
-    await loopCommand!.handler?.("5m check deploy", { ui });
+    await loopCommand!.handler?.("5m check deploy", { ...ctx, cwd, ui });
 
     const loopPath = join(cwd, ".pi", "loops", "loops-test-session.json");
     expect(existsSync(loopPath)).toBe(true);

@@ -27,7 +27,14 @@ function setup(inspectionOptions: Record<string, unknown> = {}) {
     cancelOrchestration,
     ...inspectionOptions,
   });
-  const command = commandMap.get("loop")!;
+  const registered = commandMap.get("loop")!;
+  const command = { ...registered, handler: (args: string, ctx: any) => {
+    // Plain UI fixtures still need the SDK's required context identity fields.
+    const defaults = createCtx();
+    if (!("cwd" in ctx)) ctx.cwd = defaults.cwd;
+    if (!("sessionManager" in ctx)) ctx.sessionManager = defaults.sessionManager;
+    return registered.handler!(args, ctx);
+  } };
   return { store, triggerSystem, updateWidget, maybeBootstrapTaskLoop, onDynamicLoopActivated, cancelOrchestration, command };
 }
 
@@ -56,6 +63,17 @@ describe("registerLoopCommand", () => {
     expect(ctx.notifications).toHaveLength(1);
     expect(ctx.notifications[0].message).toContain("Loop #1 created");
     expect(ctx.notifications[0].level).toBe("info");
+  });
+
+  it("failed registration rolls back only the creation and dispatcher it captured", async () => {
+    const original = new LoopStore(); const replacement = new LoopStore(); let current = original;
+    replacement.create({ type: "cron", schedule: "*/5 * * * *" }, "Replacement work", { recurring: true });
+    const before = structuredClone(replacement.get("1"));
+    const dispatcher = { remove: vi.fn(), add: vi.fn(() => { current = replacement; throw new Error("registration failed"); }) };
+    const instance = setup({ getStore: () => current, getTriggerSystem: () => dispatcher }); const ctx = createCtx();
+    await instance.command.handler!("5m New old-context work", ctx);
+    expect(original.list()).toEqual([]); expect(replacement.get("1")).toEqual(before);
+    expect(dispatcher.remove).toHaveBeenCalledWith("1"); expect(ctx.notifications).toEqual([]);
   });
 
   it("applies a leading expiration override", async () => {
@@ -127,7 +145,7 @@ describe("registerLoopCommand", () => {
       "Create event-triggered loop",
       "View loops",
       "Settings",
-    ]);
+    ], { signal: expect.any(AbortSignal) });
     expect(h.store.list()).toHaveLength(0);
   });
 
@@ -154,7 +172,7 @@ describe("registerLoopCommand", () => {
 
     await h.command.handler!("", ctx);
 
-    expect(ui.select).toHaveBeenCalledWith("No loops configured", ["< Back"]);
+    expect(ui.select).toHaveBeenCalledWith("No loops configured", ["< Back"], { signal: expect.any(AbortSignal) });
   });
 
   it("shows workflow state, ownership, and outcomes in the interactive detail view", async () => {

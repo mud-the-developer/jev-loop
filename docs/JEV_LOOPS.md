@@ -114,6 +114,9 @@ The `/jev-loop` command is an opt-in usability feature, not a replacement for
   No early follow-up message, persistent approval, new timer or backend fallback.
   A committed `/tree` move also aborts old command dialogs and clears pending
   setup, even though the session ID stays the same. A vetoed move does not.
+  Ordinary `/loop` dialogs share this same memory-only context guard, including
+  scheduled/event creation and management actions; existing controllers and
+  unchanged live completion approval are not revoked by dialog invalidation.
 - `status` only inspects existing JEV controllers and pending setup. It must not
   claim work, start verification, call JEV, or imply a live review is running
   solely because a reservation exists.
