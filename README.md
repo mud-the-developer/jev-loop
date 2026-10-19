@@ -110,6 +110,7 @@ Explicit JEV pause/delete through `/loop` management or `LoopDelete` drains owne
 | Fixed verifier cannot start/finish | Inspect the command locally; cancel and recreate if the fixed scope is wrong |
 | JEV advice is unavailable, blocked or malformed | Check the configured provider and tool permissions; do not retry automatically |
 | Local storage/settlement error | Inspect current state first: a write may already have happened; never infer completion or rollback from an absent ID |
+| Immutable policy alone exceeds JEV's encoded context bound | New setup is rejected before approval; cancel/recreate an older policy with shorter prose rather than repeatedly shortening evidence |
 
 Malformed JEV persistence metadata follows previous-snapshot recovery or a visible corruption error, never guessed identity/cwd or restored approval.
 

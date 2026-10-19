@@ -100,6 +100,22 @@ continues an already-approved goal after real tree navigation without renewing
 its budget or repeating approval. Parent messages and JEV/UI are synthetic;
 these cases make no external model calls and do not replace live acceptance.
 
+## Packet admission boundary
+
+`test/completion-packet-admission.test.ts` exercises a schema-valid policy whose
+escaped JSON cannot fit even minimum evidence, rejection before setup approval
+or creation, the exact 4,000/4,001 boundary, and maximum ordinary ASCII policy
+plus maximum evidence. Existing oversized file-backed intent stays readable and
+cancellable with a policy-specific hold; excessive actual evidence does not
+change a valid controller. Tests preserve all criteria and never raise the
+public context limit or send sizing placeholders to JEV.
+
+Direct live public-tool conformance separately observed `jev-1.13.0` classify
+three distinct fixtures as `met`, `unmet`, `unknown`; actual responses passed
+`readCompletionAdvice`. It does not establish native-approved auto-completion,
+physical TUI usability or general model quality. Bounded local response/model/
+usage metadata is ignored under `.artifacts/verification/`, not a transcript.
+
 ## Persistence and diagnostic checks
 
 `test/jev-completion-store.test.ts` uses isolated file-backed snapshots to
