@@ -18,13 +18,15 @@ async function assertFactoryReadiness(factory, api, external) {
   const bus = new EventEmitter();
   const hooks = new Map();
   const tools = new Map();
+  const commands = new Map();
   const events = { emit: (name, data) => bus.emit(name, data), on: (name, handler) => { bus.on(name, handler); return () => bus.off(name, handler); } };
   if (external) events.on(api.TASKS_RPC.ping, request => queueMicrotask(() => events.emit(api.replyChannel(api.TASKS_RPC.ping, request.requestId), { success: true, data: { version: api.PROTOCOL_VERSION, provider: "package-control" } })));
-  const pi = { events, on: (name, handler) => { hooks.set(name, [...(hooks.get(name) ?? []), handler]); }, registerTool: tool => tools.set(tool.name, tool), registerCommand() {}, sendMessage() {}, sendUserMessage() {} };
+  const pi = { events, on: (name, handler) => { hooks.set(name, [...(hooks.get(name) ?? []), handler]); }, registerTool: tool => tools.set(tool.name, tool), registerCommand: (name, command) => commands.set(name, command), sendMessage() {}, sendUserMessage() {} };
   const ctx = { cwd: temporaryDirectory, hasUI: false, isIdle: () => true, hasPendingMessages: () => false, sessionManager: { getSessionId: () => "package-control" }, ui: { setStatus() {}, setWidget() {}, notify() {} } };
   const dispatch = async name => { for (const handler of hooks.get(name) ?? []) await handler({}, ctx); };
   try {
     factory(pi);
+    assert(commands.has("jev-loop") && commands.has("loop"), "goal-first and ordinary commands register before the first request");
     const ping = await api.rpcProbe(events, api.TASKS_RPC.ping, 1000);
     assert.equal(ping?.version, api.PROTOCOL_VERSION, "factory-time current-protocol task RPC remains discoverable");
     await new Promise(resolve => setImmediate(resolve));

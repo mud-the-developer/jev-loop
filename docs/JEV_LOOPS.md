@@ -98,9 +98,56 @@ and their ordinary approvals; missing configuration is not a pass. Do not add
 new dependencies, send credentials, auto-install/start a JEV backend, change the
 vendored RPC protocol, or publish a release as part of this MVP.
 
+## Goal-first MVP expectations
+
+The `/jev-loop` command is an opt-in usability feature, not a replacement for
+`/loop`. Before implementation, the observable expectations are:
+
+- A natural-language goal is handed to the parent only when idle. The parent
+  prepares English completion policy and a known fixed verifier, proposes a
+  finite budget (default five fires and one hour), and uses existing LoopCreate
+  plus its exact native approval. A setup request is not execution permission
+  or proof that a controller was created. Ordered workflows remain a separate
+  owner; this entrypoint must not invent JEV support for them.
+- At most one setup waits in memory. Cancellation, abort, stale generation,
+  session/store/cwd replacement, and missing/disabled JEV suppress its handoff.
+  No early follow-up message, persistent approval, new timer or backend fallback.
+  A committed `/tree` move also aborts old command dialogs and clears pending
+  setup, even though the session ID stays the same. A vetoed move does not.
+- `status` only inspects existing JEV controllers and pending setup. It must not
+  claim work, start verification, call JEV, or imply a live review is running
+  solely because a reservation exists.
+- `cancel` revokes only an observed JEV controller using creation identity CAS,
+  removes its trigger, and drains owned local verification/review before the
+  acknowledgement. It does not assert remote model-service quiescence. Other
+  loop/workflow/task/orchestration owners remain unchanged.
+- Missing/oversize goals and invalid control arguments fail without mutation.
+  Normal `/loop` behavior and registered tool schemas remain stable. Native
+  menu/input/status controls are used instead of a new terminal renderer.
+
+Test these through registered commands, real file-backed peers and controlled
+callbacks before implementation, with an unchanged `/loop` passing control.
+Live checks use only non-sensitive English fixtures, at most three JEV calls,
+no paid workers, and no automatic retry on failure. Synthetic SDK/UI tests are
+not evidence of live-model quality or physical terminal usability.
+
 ## Using the MVP
 
-See the [README's LoopCreate example](../README.md#jev-assisted-completion).
+Start with `/jev-loop <goal>` (or its blank native menu), inspect with
+`/jev-loop status [id]`, and explicitly cancel with `/jev-loop cancel [id]`.
+Setup defaults proposed for native approval are five fires and one hour. The
+command hands the goal to the parent only when idle; it does not itself create
+or approve a controller. Before handoff, cancel revokes the memory-only pending
+request. After handoff but before creation, reject the native setup approval or
+abort the agent turn; the command does not claim to cancel unobserved work.
+
+Tree navigation revokes only unfinished command interactions: already-created
+controllers remain session-wide with the same frozen policy and expiry. A new
+branch is not a budget renewal. Existing live approval for that unchanged scope
+is not needlessly requested again; restart and scope replacement still require
+fresh approval.
+
+For advanced tools, see the [README's LoopCreate example](../README.md#jev-assisted-completion).
 `completion` is optional and available only to recurring idle loops with an
 explicit positive `maxFires`. `/loop` shorthand remains unchanged. The setup is
 immutable; cancel and recreate explicitly if its goal, criteria, or verifier
@@ -142,7 +189,14 @@ permission hooks. The SDK integration uses synthetic assistant messages and a
 fake JEV tool; it makes no external model request. Tests do not prove live JEV
 accuracy, actual terminal-dialog usability, Windows cleanup, unattended
 execution, or containment of a command that deliberately escapes its process
-group. See [TESTING.md](./TESTING.md) for the full gate.
+group. The goal-first SDK tests also use a synthetic parent and JEV; they do
+not measure natural-language planning accuracy. They exercise actual process
+exits `[7,0]` during repair, one setup approval, and a permission-blocked JEV
+call. Real SDK `navigateTree` cases fence stale input/cancel dialogs, preserve
+vetoed navigation, and retain the unchanged session-wide goal scope. An operator-mediated live
+attempt reached the SDK setup approval, but approval was canceled/expired:
+no JEV request was relayed and no positive live result is claimed. See
+[TESTING.md](./TESTING.md) for the full gate and operator procedure.
 
 ## Operator notes
 

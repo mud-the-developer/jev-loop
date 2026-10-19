@@ -39,12 +39,66 @@ Lint currently reports two established optional-chain warnings; new warnings are
 | Fuzz campaign | `npm run test:fuzz` | 10,000 generated cases |
 | Package smoke | `npm run test:package` | Tarball contents and public imports |
 | Live E2E | `npm run test:e2e` | Pi RPC/model conformance |
+| Operator JEV acceptance | `npm run test:e2e:jev` | Explicit human/UI and public JEV bridge; default SKIP |
 | Benchmarks | `npm run bench` | Fixed core workloads |
 | CPU profile | `npm run profile:core` | V8 profile plus checksummed metadata |
 | Startup profile | `npm run profile:startup` | Fresh-process CLI timing and separate CPU samples |
 | Fuzz profile | `npm run profile:fuzz` | Allowlisted property-worker CPU capture and campaign evidence |
 
 Unit tests use Vitest, fake timers for schedules, in-memory stores for pure behavior, temporary files for persistence/restart, and one shared Pi event-bus mock.
+
+## Operator-mediated JEV acceptance
+
+`npm run test:e2e:jev -- --operator-bridge` is a fixed source-SDK fixture with
+synthetic parent messages, real local verification, and an operator bridge to
+an existing public `jev_decide`. It discovers no credentials, installs no
+backend, and changes no global settings. It is not a physical terminal test.
+
+Its JSONL client must continuously read LF-delimited stdout and keep stdin
+open. Responses use only the current live request ID; wrong/stale IDs abort the
+run. Incoming buffered JSONL is limited to 32 KiB of UTF-8, not JavaScript
+character count. Abort clears the buffer and stops accepting further input.
+The fixture is bounded to three minutes and one JEV request, not retries.
+
+1. Relay each `extension_ui_request` with method `confirm` to the actual human,
+   showing its full title/message. Return `extension_ui_response` with that
+   human's fresh choice, or cancellation. Never synthesize approval, reuse an
+   old choice, or forward this UI payload to JEV: it contains local command
+   argv and cwd. Native approval itself retains the runtime's shorter timeout.
+2. The human-approved fixture first fails its fixed check, persists rework,
+   writes only its own temporary readiness marker, then reruns the same check.
+   It must not request another setup approval for this ordinary repair.
+3. Only relay the separate `arguments` of `jev_decision_request` unchanged to
+   the existing public JEV tool. They contain bounded English summaries, not
+   source, argv, paths, logs, originals, or credentials. Return its actual
+   decision in `jev_decision_response`; never fabricate support or acceptance.
+   A tool failure stops the run instead of retrying or changing providers.
+4. A passing `operator_result` requires one granted setup, actual verification
+   exits `[7,0]`, one real `met` recommendation, and deletion through the locked
+   completion path. Missing/declined approval, unknown advice, and failures are
+   not passes. Cleanup drains local review and removes the temporary fixture;
+   remote model-service quiescence is not inferred.
+
+The automated harness tests exercise default SKIP, refusal, stale IDs,
+truncated/malformed JSON, and ASCII/multibyte oversize input with zero
+verification/JEV calls. They do not auto-approve a live run. The current manual
+attempt reached the real SDK approval request but operator approval was
+canceled/expired; no JEV request was relayed. No live model/terminal acceptance
+is established by that attempt. Preserve bounded result metadata outside
+committed fixtures, not transcripts or secrets.
+
+## Offline UX quality checks
+
+`test/jev-loop-navigation.test.ts` uses the real SDK navigation API, not only
+an injected event. It proves old goal/cancel dialogs cannot act in another
+branch, their native controls receive an abort signal, and vetoed navigation
+does not cancel a valid interaction. Fresh requests still work after the move.
+
+`test/jev-loop-sdk.test.ts` covers actual verifier exits `[7,0]` across repair,
+one synthetic setup approval, and both allowed/blocked JEV dispatch. It also
+continues an already-approved goal after real tree navigation without renewing
+its budget or repeating approval. Parent messages and JEV/UI are synthetic;
+these cases make no external model calls and do not replace live acceptance.
 
 ## Harness review campaigns
 

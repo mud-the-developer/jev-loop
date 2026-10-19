@@ -51,6 +51,7 @@ export function createJevLoopRuntime(options: Options) {
   const previous = new Map<string, string>();
   const owned = new Set<AbortController>();
   const processes = new Set<Promise<unknown>>();
+  const reviews = new Map<string, { abort: () => void; done: Promise<void> }>();
 
   function scope(ctx: ExtensionToolContext, expiresAt: number, caller?: AbortSignal) {
     const store = options.getStore();
@@ -69,7 +70,7 @@ export function createJevLoopRuntime(options: Options) {
         throw new Error("Stale or cancelled completion scope; inspect LoopList and resubmit in the current session.");
       }
     }
-    return { store, cwd, signal, key, check, dispose: () => { clearTimeout(timer); owned.delete(controller); } };
+    return { store, cwd, signal, key, check, abort: () => controller.abort(), dispose: () => { clearTimeout(timer); owned.delete(controller); } };
   }
 
   async function confirm(ctx: ExtensionToolContext, policy: CompletionPolicy, maxFires: number, expiresAt: number, operation: ReturnType<typeof scope>) {
@@ -121,6 +122,9 @@ export function createJevLoopRuntime(options: Options) {
     let snapshot = "";
     let retainApproval = false;
     busy.add(entry.id);
+    let finished!: () => void;
+    const done = new Promise<void>(resolve => { finished = resolve; });
+    reviews.set(key, { abort: operation.abort, done });
     function check() {
       operation.check();
       if (JSON.stringify(operation.store.get(entry.id)) !== snapshot) throw new Error("Controller changed during review; inspect LoopList and resubmit.");
@@ -173,10 +177,22 @@ export function createJevLoopRuntime(options: Options) {
       return held("Completion review held after failure, cancellation, or stale evidence. Inspect LoopList and local checks/provider; explicitly resubmit with fresh approval. No retry or completion was authorized.");
     } finally {
       if (!retainApproval) { approvals.delete(key); previous.delete(key); }
-      operation.store.releaseCompletionReview?.(entry.id, reviewId);
-      busy.delete(entry.id);
-      operation.dispose();
+      try { operation.store.releaseCompletionReview?.(entry.id, reviewId); }
+      finally {
+        reviews.delete(key);
+        busy.delete(entry.id);
+        operation.dispose();
+        finished();
+      }
     }
+  }
+
+  async function cancel(entry: LoopEntry) {
+    const key = fingerprint(entry);
+    approvals.delete(key); previous.delete(key);
+    const review = reviews.get(key);
+    review?.abort();
+    await review?.done;
   }
 
   async function shutdown() {
@@ -184,9 +200,9 @@ export function createJevLoopRuntime(options: Options) {
     epoch++;
     approvals.clear(); previous.clear();
     for (const controller of owned) controller.abort();
-    await Promise.allSettled([...processes]);
+    await Promise.allSettled([...processes, ...[...reviews.values()].map(review => review.done)]);
   }
   options.pi.on("session_shutdown", shutdown);
   options.pi.on("session_start", () => { closed = false; epoch++; approvals.clear(); previous.clear(); });
-  return { setup, review, shutdown };
+  return { setup, review, cancel, shutdown };
 }

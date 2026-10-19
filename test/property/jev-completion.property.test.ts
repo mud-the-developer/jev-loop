@@ -53,4 +53,16 @@ describe("JEV completion ownership and budget properties", () => {
       expect(store.get(entry.id)).toEqual(before);
     }), propertyOptions());
   });
+
+  it("wrong creation identity cannot cancel work or change its state", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    fc.assert(fc.property(fc.string({ maxLength: 32 }), suffix => {
+      const store = new LoopStore();
+      const entry = store.create({ type: "dynamic" }, "User goal", { recurring: true, maxFires: 5, completion, completionCwd: process.cwd() });
+      const before = structuredClone(entry);
+      expect(store.delete(entry.id, { createdAt: entry.createdAt, completionId: `stale:${suffix}` })).toBe(false);
+      expect(store.get(entry.id)).toEqual(before);
+      expect(store.delete(entry.id, { createdAt: entry.createdAt, completionId: entry.completionId })).toBe(true);
+    }), propertyOptions());
+  });
 });

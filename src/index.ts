@@ -17,6 +17,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerJevLoopCommand } from "./commands/jev-loop-command.js";
 import { registerLoopCommand } from "./commands/loop-command.js";
 import { sameLoopActivation } from "./loop-activation.js";
 import { resolveDefaultLoopExpiryMs } from "./loop-expiry.js";
@@ -598,6 +599,16 @@ export default function (pi: ExtensionAPI) {
     },
     handleMonitorDoneLoop,
     handleWorkflowMonitorWait,
+  });
+
+  registerJevLoopCommand({
+    pi,
+    getStore: () => store,
+    getGeneration: () => sessionGeneration,
+    isContextCurrent: (ctx) => _sessionId === ctx.sessionManager.getSessionId() && isCurrentExtensionContext(),
+    cancelLoop: completionRuntime.cancelLoop,
+    getStorageScope: () => resolveLoopStorageScope(getScopeOptions(), _sessionId),
+    getNextFire: (id) => scheduler.nextFire(id),
   });
 
   registerLoopCommand({

@@ -23,7 +23,22 @@ jev-loop runs only while Pi is active. Persisted controller intent is not an alw
 
 ## Quick start
 
-Create scheduled, event-driven, or self-paced loops:
+Start one self-paced JEV-assisted goal in your own language, then inspect or cancel it:
+
+```text
+/jev-loop 문서의 내부 링크가 모두 유효해질 때까지 개선해줘
+/jev-loop status
+/jev-loop status 1
+/jev-loop cancel 1
+```
+
+`/jev-loop` without arguments opens the native menu. The parent prepares the English criteria and a known fixed verifier; the exact setup is approved once before creation. Defaults proposed for approval are five fires and one hour, not unlimited execution. If the agent is busy, setup waits only in memory and `/jev-loop cancel` can revoke it before handoff. No backend is installed or configured automatically.
+
+Moving within `/tree` cancels unfinished setup/dialog interactions from the old branch. Existing controllers stay session-wide with their original policy and budget; canceling a navigation does not cancel a valid dialog.
+
+A sent setup request is not a created loop. Once handed to the parent, reject its setup approval or abort that agent turn if no controller exists yet; cancellation targets only observed JEV controllers. Ordered workflows are outside this entrypoint's completion support. [Detailed boundaries](./docs/JEV_LOOPS.md).
+
+The inherited ordinary command remains available for scheduled, event-driven, or self-paced loops:
 
 ```text
 /loop 5m check the deploy
@@ -60,7 +75,7 @@ OrchestrationGet id="1"
 
 ## JEV-assisted completion
 
-Opt in through `LoopCreate`; ordinary `/loop` usage is unchanged. The parent prepares every JEV-bound natural-language field in English, even when the user's request is Korean.
+Use `/jev-loop <goal>` for the guided entrypoint; ordinary `/loop` usage is unchanged. The parent prepares every JEV-bound natural-language field in English, even when the user's request is Korean. Advanced callers can supply the same policy directly through `LoopCreate`:
 
 ```json
 {
@@ -101,7 +116,8 @@ No repeated setup approval for ordinary rework in the same live scope. Restart, 
 
 | Surface | Purpose |
 |---|---|
-| `/loop` | Create or manage scheduled, event, and dynamic goal loops |
+| `/jev-loop` | Goal-first JEV setup, read-only status, and scoped cancellation |
+| `/loop` | Create or manage ordinary scheduled, event, and dynamic goal loops |
 | `/tasks` | Manage native fallback tasks when `pi-tasks` is absent |
 | `LoopCreate`, `LoopList`, `LoopUpdate`, `LoopDelete` | Create and control ordinary loops |
 | `WorkflowCreate`, `WorkflowClaim`, `WorkflowRevise`, `WorkflowTransition` | Create, claim, revise, and advance workflows; paused terminals require trusted blocker admission |
@@ -123,6 +139,8 @@ npm run build
 # Opt-in real Pi/LLM workflow conformance
 PI_LOOP_LIVE_MODEL="<provider/model[:thinking]>" npm run test:e2e:workflow
 ```
+
+The operator-mediated JEV acceptance target is `npm run test:e2e:jev`; without an explicit human/UI client it reports SKIP, not a pass. It never auto-approves or reads backend credentials. Current live-model/physical-terminal acceptance remains unverified; see the [operator procedure](./docs/TESTING.md#operator-mediated-jev-acceptance).
 
 See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](./AGENTS.md).
 

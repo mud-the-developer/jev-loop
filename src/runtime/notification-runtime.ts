@@ -383,8 +383,9 @@ export function createNotificationRuntime(options: NotificationRuntimeOptions): 
   function loopNotificationIsCurrent(notification: ReducerNotification): boolean {
     if (!getLoop || notification.controllerStatus === undefined) return true;
     const current = getLoop(notification.loopId);
+    // Capped paused controllers are retained; their removal must invalidate the final wake.
     if (!current) return notification.recurring === false
-      || (notification.fireLimitReached === true && !notification.workflow && !notification.orchestration);
+      || (notification.fireLimitReached === true && notification.controllerStatus === "active" && !notification.workflow && !notification.orchestration);
     if (notification.controllerCreatedAt !== undefined && current.createdAt !== notification.controllerCreatedAt) return false;
     if (notification.fireCount !== undefined && (current.fireCount ?? 0) !== notification.fireCount) return false;
     return current.status === notification.controllerStatus;
