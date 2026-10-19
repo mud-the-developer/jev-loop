@@ -44,6 +44,7 @@ export interface LoopCommandOptions {
   maybeBootstrapTaskLoop?: (entry: LoopEntry) => Promise<boolean>;
   onDynamicLoopActivated?: (entry: LoopEntry) => void;
   cancelOrchestration?: (id: string, action: "pause" | "delete") => Promise<OrchestrationCancellation>;
+  cancelCompletion?: (entry: LoopEntry, action: "pause" | "delete") => Promise<boolean>;
 }
 
 type LoopCommandRoute =
@@ -93,7 +94,7 @@ function parseLoopCommandRoute(input: string): LoopCommandRoute {
 }
 
 export function registerLoopCommand(options: LoopCommandOptions): void {
-  const { pi, getStore, getTriggerSystem, updateWidget, maybeBootstrapTaskLoop, onDynamicLoopActivated, cancelOrchestration } = options;
+  const { pi, getStore, getTriggerSystem, updateWidget, maybeBootstrapTaskLoop, onDynamicLoopActivated, cancelOrchestration, cancelCompletion } = options;
 
   function createCronLoop(ui: ExtensionUIContext, interval: string, prompt: string, notifyEvery: boolean, expiresIn?: string) {
     let entry: LoopEntry | undefined;
@@ -174,8 +175,9 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
     onDynamicLoopActivated?.(entry);
   }
 
-  async function viewLoops(ui: ExtensionUIContext) {
-    const loops = getStore().list();
+  async function viewLoops(ui: ExtensionUIContext): Promise<void> {
+    const operationStore = getStore();
+    const loops = operationStore.list();
     if (loops.length === 0) {
       await ui.select("No loops configured", ["< Back"]);
       return;
@@ -193,11 +195,11 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
     choices.push("< Back");
 
     const selected = await ui.select("Loops", choices);
-    if (!selected || selected === "< Back") return;
+    if (getStore() !== operationStore || !selected || selected === "< Back") return;
 
     const match = selected.match(/#(\d+)/);
     if (match?.[1]) {
-      const entry = getStore().get(match[1]);
+      const entry = operationStore.get(match[1]);
       if (entry) {
         const actions = ["x Delete"];
         if (entry.status === "active") actions.unshift("- Pause");
@@ -215,7 +217,17 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
           nextFireAt: options.getNextFire?.(entry.id),
         }), ...body].join("\n");
         const action = await ui.select(detail, actions);
+        if (getStore() !== operationStore) return;
 
+        if (entry.completion && (action === "x Delete" || action === "- Pause")) {
+          if (!cancelCompletion) { ui.notify("JEV control unavailable; use the registered LoopDelete or /jev-loop controller before retrying.", "error"); return; }
+          const applied = await cancelCompletion(entry, action === "x Delete" ? "delete" : "pause");
+          if (getStore() !== operationStore) return;
+          ui.notify(applied
+            ? `JEV loop #${entry.id} ${action === "- Pause" ? "paused" : "canceled"}; local review drained. Remote service quiescence is not inferred.`
+            : `JEV loop #${entry.id} changed; inspect LoopList before retrying.`, applied ? "info" : "warning");
+          return applied ? viewLoops(ui) : undefined;
+        }
         if (entry.orchestration && (action === "x Delete" || action === "- Pause")) {
           const result = await cancelOrchestration?.(entry.id, action === "x Delete" ? "delete" : "pause") ?? "rejected";
           ui.notify(orchestrationCancellationMessage(entry.id, result), result === "rejected" ? "error" : result === "deleted" ? "info" : "warning");

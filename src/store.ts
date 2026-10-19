@@ -332,10 +332,10 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     });
   }
 
-  pause(id: string, kind: LoopPauseKind = "administrative", reason?: string): LoopEntry | undefined {
+  pause(id: string, kind: LoopPauseKind = "administrative", reason?: string, expected?: Pick<LoopEntry, "createdAt" | "completionId">): LoopEntry | undefined {
     return this.withLock(() => {
       const entry = this.entries.get(id);
-      if (!entry) return undefined;
+      if (!entry || (expected && (entry.createdAt !== expected.createdAt || entry.completionId !== expected.completionId))) return undefined;
       if (entry.status === "paused") return entry;
       const boundedReason = reason?.trim().slice(0, 512);
       this.applyReducerEvent({
@@ -347,7 +347,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
         payload: { id, kind, ...(boundedReason ? { reason: boundedReason } : {}) },
       });
       return this.entries.get(id);
-    });
+    }, Boolean);
   }
 
   resume(id: string): LoopEntry | undefined {

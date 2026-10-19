@@ -113,8 +113,18 @@ with an intact previous copy, then attempt five fires against a cap of two.
 Only the recorded valid budget may be admitted after recovery. Boundary controls
 preserve an intact exhausted cap and the ordinary legacy missing-counter case.
 A capped record with missing dynamic progress must recover that progress and
-reach the public verified-completion tool; its fresh approval and JEV response
-are synthetic fixture effects, not live acceptance.
+reach the public verified-completion tool on POSIX; its fresh approval and JEV
+response are synthetic fixture effects, not live acceptance. Recovery/cap
+assertions run on every platform. Windows has a separate rejection assertion
+requiring zero approval, verification and JEV effects, not POSIX success.
+
+Cancellation regressions invoke the registered legacy `/loop` pause/delete menu
+through the full extension with an actual owned Node verifier. Its PID must be
+gone before acknowledgement. Controlled verifier promises separately prove
+pause/delete/progress-pause acknowledgement waits for local drain. Rejected
+progress CAS must not abort a live review; file-backed creation mismatch must
+not pause replacement work or rewrite either snapshot. Store rebound and
+missing lifecycle handlers fail closed. These tests do not use a live JEV tool.
 
 The tool suite distinguishes safe verifier/JEV diagnostics from trusted local
 storage errors. Its post-write fault injection performs a real file-backed

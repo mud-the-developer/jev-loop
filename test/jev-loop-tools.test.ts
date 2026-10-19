@@ -248,24 +248,41 @@ describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool accep
     await h.complete(); expect(h.store.list()).toEqual([]);
   });
 
-  it("cancellation stops and drains owned verification before acknowledgement", async () => {
+  it.each([
+    { tool: "LoopDelete", args: { id: "1" }, removed: true },
+    { tool: "LoopDelete", args: { id: "1", action: "pause" }, removed: false },
+    { tool: "LoopUpdate", args: { id: "1", status: "paused" }, removed: false },
+  ])("cancellation stops and drains owned verification before acknowledgement (%j)", async ({ tool, args, removed }) => {
     const h = fixture(); await h.create();
     const wait = deferred<Awaited<ReturnType<typeof h.exec>>>(); h.exec.mockReturnValueOnce(wait.promise);
     const reviewing = h.complete();
     await vi.waitFor(() => expect(h.exec).toHaveBeenCalledTimes(1));
     let acknowledged = false;
-    const cancelling = h.call("LoopDelete", { id: "1" }).then(result => { acknowledged = true; return result; });
+    const cancelling = h.call(tool, args).then(result => { acknowledged = true; return result; });
     try {
       await Promise.resolve();
       expect(h.exec.mock.calls[0]![2].signal.aborted).toBe(true);
       expect(acknowledged).toBe(false);
-      expect(h.store.get("1")).toBeUndefined();
+      if (removed) expect(h.store.get("1")).toBeUndefined();
+      else expect(h.store.get("1")?.status).toBe("paused");
     } finally {
       wait.resolve({ code: 0, killed: true, stdout: "", stderr: "" });
       await Promise.all([reviewing, cancelling]);
     }
     expect(acknowledged).toBe(true);
     expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("a rejected progress-pause CAS does not abort the current review", async () => {
+    const h = fixture(); await h.create(); const wait = deferred<Awaited<ReturnType<typeof h.exec>>>();
+    h.exec.mockReturnValueOnce(wait.promise); const reviewing = h.complete();
+    try {
+      await vi.waitFor(() => expect(h.exec).toHaveBeenCalledTimes(1));
+      const before = structuredClone(h.store.get("1"));
+      vi.spyOn(h.store, "stopDynamic").mockReturnValueOnce(false);
+      expect(text(await h.call("LoopUpdate", { id: "1", status: "paused" }))).toContain("changed");
+      expect(h.exec.mock.calls[0]![2].signal.aborted).toBe(false); expect(h.store.get("1")).toEqual(before);
+    } finally { wait.resolve({ code: 0, killed: false, stdout: "", stderr: "" }); await reviewing; }
   });
 
   it("conditional cancellation rejects the wrong creation identity without mutation", async () => {

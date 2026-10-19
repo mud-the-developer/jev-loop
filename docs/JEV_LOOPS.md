@@ -120,7 +120,11 @@ The `/jev-loop` command is an opt-in usability feature, not a replacement for
 - `cancel` revokes only an observed JEV controller using creation identity CAS,
   removes its trigger, and drains owned local verification/review before the
   acknowledgement. It does not assert remote model-service quiescence. Other
-  loop/workflow/task/orchestration owners remain unchanged.
+  loop/workflow/task/orchestration owners remain unchanged. JEV pause/delete
+  from the legacy `/loop` manager and `LoopDelete` use the same creation-fenced
+  lifecycle handler. `LoopUpdate paused` retains its progress CAS, then drains
+  only after that CAS succeeds. An unavailable handler or stale selection must
+  not fall back to raw store mutation.
 - Missing/oversize goals and invalid control arguments fail without mutation.
   Normal `/loop` behavior and registered tool schemas remain stable. Native
   menu/input/status controls are used instead of a new terminal renderer.

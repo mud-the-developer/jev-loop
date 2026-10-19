@@ -8,7 +8,7 @@ import { parseInterval } from "../loop-parse.js";
 import { atMaxFires } from "../loop-reducer.js";
 import { type CompletionStore, createJevLoopRuntime } from "../runtime/jev-loop-runtime.js";
 import type { OrchestrationCancellation } from "../runtime/subagent-orchestration-runtime.js";
-import type { LoopEntry, Trigger } from "../types.js";
+import type { LoopEntry, LoopPauseKind, Trigger } from "../types.js";
 import { orchestrationCancellationMessage, orchestrationProgressLabel, orchestrationStatusLabel } from "../ui/orchestration-presentation.js";
 import { renderToolCall, renderToolResult, toolArg } from "../ui/tool-renderer.js";
 import { deriveWorkflowActivity, formatCompactWorkflowDuration } from "../ui/workflow-presentation.js";
@@ -32,7 +32,7 @@ interface LoopStoreLike extends CompletionStore {
     completionExpiresAt?: number;
     dynamic?: Partial<NonNullable<LoopEntry["dynamic"]>>;
   }): LoopEntry;
-  pause(id: string): LoopEntry | undefined;
+  pause(id: string, kind?: LoopPauseKind, reason?: string, expected?: Pick<LoopEntry, "createdAt" | "completionId">): LoopEntry | undefined;
   continueDynamic(
     id: string,
     fields: { prompt?: string; dynamic: Partial<NonNullable<LoopEntry["dynamic"]>> },
@@ -235,12 +235,14 @@ export function registerLoopTools(options: LoopToolsOptions) {
     cancelOrchestration,
   } = options;
 
-  async function cancelLoop(entry: LoopEntry): Promise<boolean> {
+  async function cancelLoop(entry: LoopEntry, action: "pause" | "delete" = "delete"): Promise<boolean> {
     if (!entry.completion) return false;
     const store = getStore();
     const trigger = getTriggerSystem();
     const generation = options.getGeneration?.();
-    if (!store.delete(entry.id, { createdAt: entry.createdAt, completionId: entry.completionId })) return false;
+    const identity = { createdAt: entry.createdAt, completionId: entry.completionId };
+    const applied = action === "pause" ? store.pause(entry.id, "administrative", undefined, identity) !== undefined : store.delete(entry.id, identity);
+    if (!applied) return false;
     trigger.remove(entry.id);
     await completionRuntime.cancel(entry);
     if (store === getStore() && generation === options.getGeneration?.()) updateWidget();
@@ -522,6 +524,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
     async execute(_toolCallId, params: LoopUpdateParams, signal, _onUpdate, ctx) {
       const store = getStore();
       const triggerSystem = getTriggerSystem();
+      const generation = options.getGeneration?.();
       const entry = store.get(params.id);
       if (!entry) {
         return Promise.resolve(textResult(`Loop #${params.id} not found`, {
@@ -568,8 +571,9 @@ export function registerLoopTools(options: LoopToolsOptions) {
           kind: "loop", action: "update", tone: "error", summary: `Loop #${params.id} update rejected`, expanded: [outcome.message],
         }));
       }
+      if (entry.completion && params.status === "paused") await completionRuntime.cancel(entry);
       const message = outcome.message;
-      updateWidget();
+      if (store === getStore() && generation === options.getGeneration?.()) updateWidget();
       const tone = params.status === "paused" ? "warning" : "success";
       const summary = params.status === "completed"
         ? `Loop #${params.id} completed`
@@ -614,10 +618,11 @@ export function registerLoopTools(options: LoopToolsOptions) {
         });
       }
 
-      if (existing?.completion && action !== "pause") {
-        const deleted = await cancelLoop(existing);
-        const message = deleted ? `JEV loop #${id} canceled; local review drained. Remote service quiescence is not inferred.` : `JEV loop #${id} changed; inspect LoopList before canceling.`;
-        return textResult(message, { kind: "loop", action: "delete", tone: deleted ? "success" : "warning", summary: deleted ? `JEV loop #${id} canceled` : "Cancellation rejected", expanded: [message] });
+      if (existing?.completion) {
+        const operation = action === "pause" ? "pause" : "delete";
+        const applied = await cancelLoop(existing, operation);
+        const message = applied ? `JEV loop #${id} ${operation === "pause" ? "paused" : "canceled"}; local review drained. Remote service quiescence is not inferred.` : `JEV loop #${id} changed; inspect LoopList before canceling.`;
+        return textResult(message, { kind: "loop", action: operation, tone: applied ? "success" : "warning", summary: applied ? `JEV loop #${id} ${operation === "pause" ? "paused" : "canceled"}` : "Cancellation rejected", expanded: [message] });
       }
       if (action === "pause") {
         const entry = operationStore.pause(id);
@@ -633,7 +638,6 @@ export function registerLoopTools(options: LoopToolsOptions) {
           }));
         }
         operationTrigger.remove(id);
-        if (entry.completion) await completionRuntime.cancel(entry);
         if (operationStore === getStore() && operationGeneration === options.getGeneration?.()) updateWidget();
         return Promise.resolve(textResult(`Loop #${id} paused`, {
           kind: "loop", action: "pause", tone: "warning", summary: `Loop #${id} paused`, expanded: ["Use LoopList to inspect paused loops."],

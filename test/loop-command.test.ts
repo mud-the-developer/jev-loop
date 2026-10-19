@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerLoopCommand } from "../src/commands/loop-command.js";
 import { CronScheduler } from "../src/scheduler.js";
 import { LoopStore } from "../src/store.js";
+import { policy } from "./helpers/jev-loop-fixture.js";
 import { createCtx, createMockPi } from "./helpers/mock-pi.js";
 import { currentWorkflowIdentity } from "./helpers/workflow-identity.js";
 
@@ -507,6 +508,36 @@ describe("registerLoopCommand", () => {
     expect(h.store.get("1")).toBeUndefined();
     expect(h.triggerSystem.remove).toHaveBeenCalledWith("1");
     expect(ui.notify).toHaveBeenCalledWith("Loop #1 deleted", "info");
+  });
+
+  it.each(["x Delete", "- Pause"])("JEV %s fails closed when its lifecycle controller is unavailable", async action => {
+    h.store.create({ type: "dynamic" }, "JEV fixture", { recurring: true, maxFires: 3, completion: policy, completionCwd: process.cwd() });
+    const before = structuredClone(h.store.get("1")); let visits = 0;
+    const ui = { input: vi.fn(), notify: vi.fn(), select: vi.fn(async (title: string, choices?: string[]) => {
+      if (title === "Loop") return "View loops";
+      if (title === "Loops") return visits++ === 0 ? choices?.find(choice => choice.includes("#1")) : "< Back";
+      if (title.startsWith("#1:")) return action;
+      return "< Back";
+    }) };
+    await h.command.handler!("", { ui } as any);
+    expect(h.store.get("1")).toEqual(before); expect(h.triggerSystem.remove).not.toHaveBeenCalled();
+    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("JEV control unavailable"), "error");
+  });
+
+  it.each(["list", "action"])("a store rebound during the %s dialog cannot cancel another session's work", async boundary => {
+    const original = new LoopStore(); const replacement = new LoopStore(); let current = original;
+    for (const store of [original, replacement]) store.create({ type: "dynamic" }, "JEV fixture", { recurring: true, maxFires: 3, completion: policy, completionCwd: process.cwd() });
+    const beforeOriginal = structuredClone(original.get("1")); const beforeReplacement = structuredClone(replacement.get("1"));
+    const cancelCompletion = vi.fn(async () => true); const instance = setup({ getStore: () => current, cancelCompletion });
+    const ui = { input: vi.fn(), notify: vi.fn(), select: vi.fn(async (title: string, choices?: string[]) => {
+      if (title === "Loop") return "View loops";
+      if (title === "Loops") { if (boundary === "list") current = replacement; return choices?.find(choice => choice.includes("#1")); }
+      if (title.startsWith("#1:")) { current = replacement; return "x Delete"; }
+      return "< Back";
+    }) };
+    await instance.command.handler!("", { ui } as any);
+    expect(cancelCompletion).not.toHaveBeenCalled(); expect(original.get("1")).toEqual(beforeOriginal);
+    expect(replacement.get("1")).toEqual(beforeReplacement); expect(ui.notify).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("reports orchestration command retention honestly (%s)", async (retained) => {

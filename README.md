@@ -100,6 +100,8 @@ Approve the exact bounded setup once in the native dialog. When ready, call `Loo
 
 No repeated setup approval for ordinary rework in the same live scope. Restart, cancellation, invalid execution, or a provider error requires fresh approval; existing mandatory permission/transmission gates remain. A fire-cap pause is not success and cannot extend its budget. [Contract, examples, evidence and limitations](./docs/JEV_LOOPS.md).
 
+Explicit JEV pause/delete through `/loop` management or `LoopDelete` drains owned local review before acknowledgement. `LoopUpdate paused` does the same only after its progress update succeeds. Remote service quiescence is not inferred.
+
 ### When completion is held or fails
 
 | Situation | Next action |
