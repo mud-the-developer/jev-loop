@@ -117,11 +117,37 @@ function validateControllerDomain(entry: {
   }
 }
 
+function completionString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && !value.includes("\0");
+}
+
 function normalizeLoopEntry(entry: LoopEntry): LoopEntry {
   const pause = normalizePauseRecord(entry);
   validateControllerDomain(entry);
-  if (entry.completion && (!entry.completionId || !entry.completionCwd || !Number.isSafeInteger(entry.completionVersion) || entry.completionVersion! < 0)) {
-    throw new Error("Malformed completion controller identity");
+  if (entry.completion) {
+    if (!completionString(entry.id) || !completionString(entry.completionId) || !completionString(entry.completionCwd)
+      || !Number.isSafeInteger(entry.createdAt) || !Number.isSafeInteger(entry.updatedAt) || !Number.isSafeInteger(entry.expiresAt)
+      || !Number.isSafeInteger(entry.completionVersion) || entry.completionVersion! < 0) {
+      throw new Error("Malformed completion controller identity");
+    }
+    if (!Number.isSafeInteger(entry.fireCount) || entry.fireCount! < 0 || entry.fireCount! > entry.maxFires!) {
+      throw new Error("Malformed completion fire budget");
+    }
+    const dynamic = entry.dynamic;
+    if (!dynamic || typeof dynamic !== "object" || Array.isArray(dynamic) || typeof dynamic.goal !== "string"
+      || !Number.isSafeInteger(dynamic.iteration) || dynamic.iteration < 0
+      || (dynamic.awaitingUpdate !== undefined && typeof dynamic.awaitingUpdate !== "boolean")
+      || (["state", "metrics", "doneCriteria"] as const).some(field => dynamic[field] !== undefined && typeof dynamic[field] !== "string")
+      || (["nextWakeAt", "lastUpdatedAt"] as const).some(field => dynamic[field] !== undefined && !Number.isSafeInteger(dynamic[field]))) {
+      throw new Error("Malformed completion dynamic progress");
+    }
+    const review = entry.completionReview;
+    if (review !== undefined && (!review || typeof review !== "object" || Array.isArray(review)
+      || !completionString(review.id) || !Number.isSafeInteger(review.expiresAt) || review.expiresAt > entry.expiresAt)) {
+      throw new Error("Malformed completion review reservation");
+    }
+  } else if ([entry.completionId, entry.completionCwd, entry.completionVersion, entry.completionReview].some(value => value !== undefined)) {
+    throw new Error("Orphaned completion metadata without a completion policy");
   }
   return {
     ...entry,
@@ -235,7 +261,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
       const now = Date.now();
       const expiryMs = opts.expiresIn === undefined ? this.defaultExpiryMs : parseLoopDurationMs(opts.expiresIn);
       const expiresAt = opts.completion ? opts.completionExpiresAt ?? expiresAtFromDuration(now, expiryMs) : expiresAtFromDuration(now, expiryMs);
-      if (opts.completion && (!opts.completionCwd || !Number.isSafeInteger(expiresAt) || expiresAt <= now)) {
+      if (opts.completion && (!completionString(opts.completionCwd) || !Number.isSafeInteger(expiresAt) || expiresAt <= now)) {
         throw new Error("Completion requires an exact working directory and unexpired setup; recreate with fresh approval.");
       }
       this.applyReducerEvent({
@@ -306,10 +332,10 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     });
   }
 
-  pause(id: string, kind: LoopPauseKind = "administrative", reason?: string): LoopEntry | undefined {
+  pause(id: string, kind: LoopPauseKind = "administrative", reason?: string, expected?: Pick<LoopEntry, "createdAt" | "completionId">): LoopEntry | undefined {
     return this.withLock(() => {
       const entry = this.entries.get(id);
-      if (!entry) return undefined;
+      if (!entry || (expected && (entry.createdAt !== expected.createdAt || entry.completionId !== expected.completionId))) return undefined;
       if (entry.status === "paused") return entry;
       const boundedReason = reason?.trim().slice(0, 512);
       this.applyReducerEvent({
@@ -321,7 +347,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
         payload: { id, kind, ...(boundedReason ? { reason: boundedReason } : {}) },
       });
       return this.entries.get(id);
-    });
+    }, Boolean);
   }
 
   resume(id: string): LoopEntry | undefined {

@@ -625,6 +625,7 @@ export default function (pi: ExtensionAPI) {
       onLoopFire(entry);
     },
     cancelOrchestration: (id, action) => orchestrationRuntime!.cancel(id, action),
+    cancelCompletion: completionRuntime.cancelLoop,
   });
 
 }

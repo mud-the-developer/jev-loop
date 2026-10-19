@@ -18,6 +18,8 @@ interface Options {
   isContextCurrent?: (ctx: ExtensionToolContext) => boolean;
   verify?: (command: string, args: string[], options: VerificationOptions) => Promise<VerificationResult>;
 }
+class StaleCompletionScopeError extends Error {}
+
 function approvalText(policy: CompletionPolicy, cwd: string, maxFires: number, expiresAt: number): string {
   return [
     "Approve this exact JEV-assisted loop setup for this live session only?",
@@ -67,7 +69,7 @@ export function createJevLoopRuntime(options: Options) {
     function check() {
       if (closed || signal.aborted || startedEpoch !== epoch || generation !== options.getGeneration?.() || store !== options.getStore()
         || ctx.cwd !== cwd || ctx.sessionManager.getSessionId() !== session || options.isContextCurrent?.(ctx) === false || Date.now() >= expiresAt) {
-        throw new Error("Stale or cancelled completion scope; inspect LoopList and resubmit in the current session.");
+        throw new StaleCompletionScopeError("Stale or cancelled completion scope; inspect LoopList and resubmit in the current session.");
       }
     }
     return { store, cwd, signal, key, check, abort: () => controller.abort(), dispose: () => { clearTimeout(timer); owned.delete(controller); } };
@@ -78,7 +80,8 @@ export function createJevLoopRuntime(options: Options) {
     if (!ctx.hasUI || !available(ctx)) throw new Error("Completion needs native UI and public jev_decide; enable them before resubmitting.");
     const accepted = await cancellable(ctx.ui.confirm("Approve JEV loop", approvalText(policy, operation.cwd, maxFires, expiresAt), { signal: operation.signal }), operation.signal);
     operation.check();
-    if (!accepted || !available(ctx)) throw new Error("Completion setup declined or provider unavailable; explicitly resubmit when ready.");
+    if (!accepted) throw new Error("Completion setup declined; stop. A fresh explicit user request is required before another approval.");
+    if (!available(ctx)) throw new Error("Public jev_decide unavailable; enable it before a fresh explicit setup request.");
   }
 
   async function setup(ctx: ExtensionToolContext, policy: CompletionPolicy, maxFires: number, expiresAt: number, caller?: AbortSignal) {
@@ -127,7 +130,7 @@ export function createJevLoopRuntime(options: Options) {
     reviews.set(key, { abort: operation.abort, done });
     function check() {
       operation.check();
-      if (JSON.stringify(operation.store.get(entry.id)) !== snapshot) throw new Error("Controller changed during review; inspect LoopList and resubmit.");
+      if (JSON.stringify(operation.store.get(entry.id)) !== snapshot) throw new StaleCompletionScopeError("Controller changed during review; inspect LoopList and resubmit.");
     }
     try {
       operation.check();
@@ -140,15 +143,24 @@ export function createJevLoopRuntime(options: Options) {
       snapshot = JSON.stringify(reserved);
       const approval = approvals.get(key);
       if (approval?.store !== operation.store || approval.scope !== operation.key) {
-        await confirm(ctx, policy, entry.maxFires!, entry.expiresAt, operation);
+        try { await confirm(ctx, policy, entry.maxFires!, entry.expiresAt, operation); }
+        catch {
+          check();
+          return held("Completion held: setup review did not finish with valid approval. Stop here; a fresh explicit user request is required before another approval.");
+        }
         check();
         approvals.set(key, { store: operation.store, scope: operation.key, id: entry.id });
       }
       check();
-      const process = (options.verify ?? verifyCompletion)(policy.verification.command, [...policy.verification.args], { cwd: operation.cwd, timeout: VERIFICATION_TIMEOUT_MS, signal: operation.signal });
-      processes.add(process);
-      let verified: Awaited<typeof process>;
-      try { verified = await process; } finally { processes.delete(process); }
+      let verified: VerificationResult;
+      try {
+        const process = (options.verify ?? verifyCompletion)(policy.verification.command, [...policy.verification.args], { cwd: operation.cwd, timeout: VERIFICATION_TIMEOUT_MS, signal: operation.signal });
+        processes.add(process);
+        try { verified = await process; } finally { processes.delete(process); }
+      } catch {
+        check();
+        return held("Completion held: the fixed verifier could not start or finish. Inspect its command locally; if it is wrong, cancel and recreate with the correct approved scope.");
+      }
       check();
       if (verified.killed || verified.signal || verified.code === null || !Number.isInteger(verified.code)) return held("Verification cancelled or invalid; inspect locally and resubmit with fresh approval.");
       if (verified.code !== 0) {
@@ -156,9 +168,15 @@ export function createJevLoopRuntime(options: Options) {
         return held(`unmet: required verification failed. ${atMaxFires(entry) ? "Fire cap exhausted; inspect or cancel, never resume." : "Repair and continue within the existing fire budget; no new setup approval is needed."}`);
       }
       if (!available(ctx)) return held("Public jev_decide unavailable; restore it and explicitly resubmit with approval.");
-      const result = await cancellable(ctx.executeTool("jev_decide", completionPacket(policy, evidence, verified.code), { signal: operation.signal }), operation.signal);
+      let advice: ReturnType<typeof readCompletionAdvice>;
+      try {
+        const result = await cancellable(ctx.executeTool("jev_decide", completionPacket(policy, evidence, verified.code), { signal: operation.signal }), operation.signal);
+        advice = readCompletionAdvice(result);
+      } catch {
+        check();
+        return held("Completion held: the JEV decision was unavailable, blocked or malformed. Inspect provider availability and tool permissions; do not retry automatically.");
+      }
       check();
-      const advice = readCompletionAdvice(result);
       if (advice.status === "needs_user") {
         return { completed: false, message: `needs_user: pass askUser unchanged to ask_user; if unavailable stop.\n${JSON.stringify(advice.askUser)}`, askUser: advice.askUser };
       }
@@ -173,8 +191,10 @@ export function createJevLoopRuntime(options: Options) {
         status: reserved.status, iteration: reserved.dynamic!.iteration, updatedAt: reserved.updatedAt, completionSnapshot: snapshot,
       });
       return { completed, message: completed ? `Dynamic loop #${entry.id} completed and deleted` : "Controller changed during final completion; inspect LoopList and resubmit." };
-    } catch {
-      return held("Completion review held after failure, cancellation, or stale evidence. Inspect LoopList and local checks/provider; explicitly resubmit with fresh approval. No retry or completion was authorized.");
+    } catch (error) {
+      // Store failures can follow a write; only known scope rejection is a clean hold.
+      if (!(error instanceof StaleCompletionScopeError)) throw error;
+      return held("Completion held: controller or session changed, or the review was canceled/expired. Inspect LoopList in the current session; no retry is authorized without fresh authority.");
     } finally {
       if (!retainApproval) { approvals.delete(key); previous.delete(key); }
       try { operation.store.releaseCompletionReview?.(entry.id, reviewId); }

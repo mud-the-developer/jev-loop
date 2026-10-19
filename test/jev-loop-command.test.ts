@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -93,6 +93,29 @@ describe("platform-independent command inspection", () => {
 });
 
 describe.skipIf(process.platform === "win32")("goal-first POSIX command acceptance", () => {
+  it.each(["x Delete", "- Pause"])("legacy /loop %s drains the owned verifier before acknowledgement", async action => {
+    const h = await setup(); const pidPath = join(h.ctx.cwd, "owned-verifier.pid");
+    await h.create({ ...policy, verification: { command: process.execPath,
+      args: ["-e", `require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`],
+      description: "A fixed owned process used only to verify cancellation cleanup" } });
+    const reviewing = h.call("LoopUpdate", { id: "1", status: "completed", completionEvidence: "The fixed cancellation fixture is ready for review." });
+    try {
+      await vi.waitFor(() => expect(existsSync(pidPath)).toBe(true), { timeout: 5000 });
+      const pid = Number(readFileSync(pidPath, "utf8")); let selected = false;
+      expect(Number.isSafeInteger(pid)).toBe(true);
+      h.select.mockImplementation(async (title, choices) => {
+        if (title === "Loop") return "View loops";
+        if (title === "Loops" && !selected) { selected = true; return choices.find((value: string) => value.includes("#1")); }
+        if (String(title).startsWith("#1:")) return action;
+        return undefined;
+      });
+      await h.commandMap.get("loop")!.handler!("", h.ctx);
+      expect(() => process.kill(pid, 0)).toThrow();
+      expect(await h.listed()).toContain(action === "x Delete" ? "No loops" : "paused");
+      expect(h.executeTool).not.toHaveBeenCalled();
+    } finally { await h.shutdown(); await reviewing; }
+  });
+
   it("hands a Korean goal to the parent, not JEV or the store, with bounded English-policy instructions", async () => {
     const h = await setup(); const goal = "문서 링크가 모두 유효해질 때까지 개선해줘";
     await h.command(goal);

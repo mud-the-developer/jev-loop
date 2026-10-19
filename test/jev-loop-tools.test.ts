@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { StoreCorruptionError } from "../src/reducer-backed-store.js";
 import { LoopStore } from "../src/store.js";
 import { canResumeFromInspection } from "../src/ui/lifecycle-presentation.js";
 import { candidates, deferred, evidence, fixture, outcome, policy, recommendation, text } from "./helpers/jev-loop-fixture.js";
@@ -145,6 +146,61 @@ describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool accep
     await h.complete({ completionEvidence: "New evidence supports all criteria." }); expect(h.confirm).toHaveBeenCalledTimes(2);
   });
 
+  it("verifier failures identify the local phase without exposing raw errors", async () => {
+    const h = fixture(); await h.create(); const before = structuredClone(h.store.get("1"));
+    h.exec.mockRejectedValueOnce(new Error("PRIVATE_VERIFIER_OUTPUT"));
+    const message = text(await h.complete());
+    expect(message).toContain("fixed verifier"); expect(message).toContain("cancel and recreate");
+    expect(message).not.toContain("PRIVATE_VERIFIER_OUTPUT"); expect(h.store.get("1")).toEqual(before);
+    expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("provider failures identify JEV decision handling without exposing provider text", async () => {
+    const h = fixture(); await h.create(); const bad = outcome(undefined, true);
+    bad.result.content[0]!.text = "PRIVATE_PROVIDER_OUTPUT"; h.executeTool.mockResolvedValueOnce(bad);
+    const message = text(await h.complete());
+    expect(message).toContain("JEV decision"); expect(message).toContain("permissions");
+    expect(message).not.toContain("PRIVATE_PROVIDER_OUTPUT"); expect(h.store.get("1")).toBeDefined();
+  });
+
+  it("a canceled reapproval is not an invitation to resubmit automatically", async () => {
+    const path = file(); const original = fixture(path); await original.create();
+    const restarted = fixture(path); restarted.confirm.mockResolvedValue(false);
+    const message = text(await restarted.complete());
+    expect(message).toContain("fresh explicit user request");
+    expect(restarted.exec).not.toHaveBeenCalled(); expect(restarted.store.get("1")).toBeDefined();
+  });
+
+  it("trusted storage corruption stays visible rather than becoming a provider hold", async () => {
+    const h = fixture(); await h.create();
+    vi.spyOn(h.store, "reserveCompletionReview").mockImplementationOnce(() => { throw new StoreCorruptionError("fixture-store"); });
+    await expect(h.complete()).rejects.toThrow(StoreCorruptionError);
+    expect(h.exec).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("reservation I/O failures are not mislabeled as rejected approval", async () => {
+    const h = fixture(); await h.create();
+    vi.spyOn(h.store, "reserveCompletionReview").mockImplementationOnce(() => { throw new Error("RESERVATION_IO_FAILURE"); });
+    await expect(h.complete()).rejects.toThrow("RESERVATION_IO_FAILURE");
+    expect(h.exec).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("trusted state-read failures are not mislabeled as JEV failures", async () => {
+    const h = fixture(); await h.create();
+    h.executeTool.mockImplementationOnce(async () => {
+      vi.spyOn(h.store, "get").mockImplementationOnce(() => { throw new Error("READ_IO_FAILURE"); });
+      return outcome(recommendation());
+    });
+    await expect(h.complete()).rejects.toThrow("READ_IO_FAILURE");
+  });
+
+  it("post-write settlement errors surface even if the controller was already removed", async () => {
+    const path = file(); const h = fixture(path); await h.create(); const stop = h.store.stopDynamic.bind(h.store);
+    vi.spyOn(h.store, "stopDynamic").mockImplementationOnce((...args) => { stop(...args); throw new Error("POST_WRITE_FAILURE"); });
+    await expect(h.complete()).rejects.toThrow("POST_WRITE_FAILURE");
+    expect(new LoopStore(path).get("1")).toBeUndefined();
+  });
+
   it("malformed result JSON cannot complete despite a valid-looking details object", async () => {
     const h = fixture(); await h.create();
     const before = structuredClone(h.store.get("1"));
@@ -192,24 +248,41 @@ describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool accep
     await h.complete(); expect(h.store.list()).toEqual([]);
   });
 
-  it("cancellation stops and drains owned verification before acknowledgement", async () => {
+  it.each([
+    { tool: "LoopDelete", args: { id: "1" }, removed: true },
+    { tool: "LoopDelete", args: { id: "1", action: "pause" }, removed: false },
+    { tool: "LoopUpdate", args: { id: "1", status: "paused" }, removed: false },
+  ])("cancellation stops and drains owned verification before acknowledgement (%j)", async ({ tool, args, removed }) => {
     const h = fixture(); await h.create();
     const wait = deferred<Awaited<ReturnType<typeof h.exec>>>(); h.exec.mockReturnValueOnce(wait.promise);
     const reviewing = h.complete();
     await vi.waitFor(() => expect(h.exec).toHaveBeenCalledTimes(1));
     let acknowledged = false;
-    const cancelling = h.call("LoopDelete", { id: "1" }).then(result => { acknowledged = true; return result; });
+    const cancelling = h.call(tool, args).then(result => { acknowledged = true; return result; });
     try {
       await Promise.resolve();
       expect(h.exec.mock.calls[0]![2].signal.aborted).toBe(true);
       expect(acknowledged).toBe(false);
-      expect(h.store.get("1")).toBeUndefined();
+      if (removed) expect(h.store.get("1")).toBeUndefined();
+      else expect(h.store.get("1")?.status).toBe("paused");
     } finally {
       wait.resolve({ code: 0, killed: true, stdout: "", stderr: "" });
       await Promise.all([reviewing, cancelling]);
     }
     expect(acknowledged).toBe(true);
     expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("a rejected progress-pause CAS does not abort the current review", async () => {
+    const h = fixture(); await h.create(); const wait = deferred<Awaited<ReturnType<typeof h.exec>>>();
+    h.exec.mockReturnValueOnce(wait.promise); const reviewing = h.complete();
+    try {
+      await vi.waitFor(() => expect(h.exec).toHaveBeenCalledTimes(1));
+      const before = structuredClone(h.store.get("1"));
+      vi.spyOn(h.store, "stopDynamic").mockReturnValueOnce(false);
+      expect(text(await h.call("LoopUpdate", { id: "1", status: "paused" }))).toContain("changed");
+      expect(h.exec.mock.calls[0]![2].signal.aborted).toBe(false); expect(h.store.get("1")).toEqual(before);
+    } finally { wait.resolve({ code: 0, killed: false, stdout: "", stderr: "" }); await reviewing; }
   });
 
   it("conditional cancellation rejects the wrong creation identity without mutation", async () => {

@@ -120,7 +120,11 @@ The `/jev-loop` command is an opt-in usability feature, not a replacement for
 - `cancel` revokes only an observed JEV controller using creation identity CAS,
   removes its trigger, and drains owned local verification/review before the
   acknowledgement. It does not assert remote model-service quiescence. Other
-  loop/workflow/task/orchestration owners remain unchanged.
+  loop/workflow/task/orchestration owners remain unchanged. JEV pause/delete
+  from the legacy `/loop` manager and `LoopDelete` use the same creation-fenced
+  lifecycle handler. `LoopUpdate paused` retains its progress CAS, then drains
+  only after that CAS succeeds. An unavailable handler or stale selection must
+  not fall back to raw store mutation.
 - Missing/oversize goals and invalid control arguments fail without mutation.
   Normal `/loop` behavior and registered tool schemas remain stable. Native
   menu/input/status controls are used instead of a new terminal renderer.
@@ -179,6 +183,31 @@ Deletion via `LoopDelete` is explicit cancellation, not verified completion.
 There is no claimed dollar cap. Ordinary permission gates can still block a
 nested JEV call. Persisted intent survives only according to the normal storage
 contract; approval is process-local and is never restored from disk.
+
+## Persistence and failure diagnostics
+
+Stored JEV controller identity, working directory, completion-version counter,
+identity timestamps and review reservations are validated on reload. JEV fire
+counts must be recorded safe integers in `0..maxFires`; required dynamic progress
+and its iteration/optional field types must also be intact. Malformed current state uses the
+existing previous-snapshot recovery; if neither snapshot is valid, corruption
+remains visible and the bad files are not silently replaced with guessed
+identity, cwd or approval. Ordinary legacy controllers remain readable.
+Expired, structurally valid reservations are still readable, not authority to
+retry; restart requires the existing fresh approval rules. A bad counter is not
+clamped/reset and missing progress is not guessed: recovery uses only the prior
+valid snapshot and retains its normal continuity limitations. The ordinary
+legacy missing-counter convention remains separate. An intact exhausted JEV
+cap stays paused without renewal, while recovered final progress can still be
+submitted for verified completion before expiry.
+
+Verifier-start failures and rejected/unavailable/malformed JEV advice identify
+the failed phase with safe next actions, without copying raw provider errors or
+verifier output. A declined setup requires a fresh explicit user request, not
+auto-resubmission. Trusted storage corruption and settlement I/O errors stay
+visible. A settlement error can occur after a write: inspect the current store
+and external effects before deciding what, if anything, to retry. An error or
+missing ID does not prove rollback, completion, or permission for another run.
 
 ## Verification scope
 
