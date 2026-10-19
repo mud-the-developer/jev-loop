@@ -614,6 +614,8 @@ export default function (pi: ExtensionAPI) {
   registerLoopCommand({
     pi,
     getStore: () => store,
+    getGeneration: () => sessionGeneration,
+    isContextCurrent: (ctx) => _sessionId === ctx.sessionManager.getSessionId() && isCurrentExtensionContext(),
     getTriggerSystem: () => triggerSystem,
     getStorageScope: () => resolveLoopStorageScope(getScopeOptions(), _sessionId),
     getNextFire: (id) => scheduler.nextFire(id),

@@ -46,6 +46,8 @@ The inherited ordinary command remains available for scheduled, event-driven, or
 /loop finish the release
 ```
 
+The ordinary native menus also discard late dialog replies after a committed branch/session/context change. Existing scheduled work is not canceled; reopen the menu in the current context to submit a new action.
+
 Or use the tools directly:
 
 ```text

@@ -11,6 +11,7 @@ import type { DynamicLoopState, LoopEntry, Trigger } from "../types.js";
 import { canResumeFromInspection, formatLoopLifecycle } from "../ui/lifecycle-presentation.js";
 import { formatOrchestrationInspection, orchestrationCancellationMessage, orchestrationProgressLabel, orchestrationStatusLabel } from "../ui/orchestration-presentation.js";
 import { formatWorkflowInspection, workflowActivityLabel } from "../ui/workflow-presentation.js";
+import { type CommandScope, createCommandGuard } from "./command-scope.js";
 
 interface LoopStoreLike {
   list(): LoopEntry[];
@@ -37,6 +38,8 @@ interface TriggerSystemLike {
 export interface LoopCommandOptions {
   pi: ExtensionAPI;
   getStore: () => LoopStoreLike;
+  getGeneration?: () => number;
+  isContextCurrent?: (ctx: ExtensionCommandContext) => boolean;
   getTriggerSystem: () => TriggerSystemLike;
   getStorageScope?: () => LoopStorageScope;
   getNextFire?: (id: string) => number | undefined;
@@ -96,42 +99,48 @@ function parseLoopCommandRoute(input: string): LoopCommandRoute {
 export function registerLoopCommand(options: LoopCommandOptions): void {
   const { pi, getStore, getTriggerSystem, updateWidget, maybeBootstrapTaskLoop, onDynamicLoopActivated, cancelOrchestration, cancelCompletion } = options;
 
-  function createCronLoop(ui: ExtensionUIContext, interval: string, prompt: string, notifyEvery: boolean, expiresIn?: string) {
+  const capture = createCommandGuard(options);
+
+  function createCronLoop(ui: ExtensionUIContext, scope: CommandScope, interval: string, prompt: string, notifyEvery: boolean, expiresIn?: string) {
+    if (!scope.current()) return;
+    const store = getStore(); const triggerSystem = getTriggerSystem();
     let entry: LoopEntry | undefined;
     try {
       const parsed = parseInterval(interval);
       const trigger: Trigger = { type: "cron", schedule: parsed.cron };
-      entry = getStore().create(trigger, prompt, { recurring: true, expiresIn });
-      getTriggerSystem().add(entry);
+      entry = store.create(trigger, prompt, { recurring: true, expiresIn });
+      triggerSystem.add(entry);
       updateWidget();
       const cadence = notifyEvery ? `every ${parsed.description}` : parsed.description;
-      ui.notify(`Loop #${entry.id} created: ${cadence} — ${prompt.slice(0, 50)}`, "info");
+      if (scope.current()) ui.notify(`Loop #${entry.id} created: ${cadence} — ${prompt.slice(0, 50)}`, "info");
     } catch (err: unknown) {
       if (entry) {
-        getTriggerSystem().remove(entry.id);
-        getStore().delete(entry.id);
-        updateWidget();
+        triggerSystem.remove(entry.id);
+        store.delete(entry.id);
+        if (scope.current()) updateWidget();
       }
-      ui.notify((err as Error).message, "error");
+      if (scope.current()) ui.notify((err as Error).message, "error");
     }
   }
 
-  async function scheduleLoop(ui: ExtensionUIContext, prompt?: string, expiresIn?: string) {
-    const p = prompt || await ui.input("Prompt (what should the agent check?)");
-    if (!p) return;
+  async function scheduleLoop(ui: ExtensionUIContext, scope: CommandScope, prompt?: string, expiresIn?: string) {
+    if (!scope.current()) return;
+    const p = prompt || await ui.input("Prompt (what should the agent check?)", undefined, { signal: scope.signal });
+    if (!scope.current() || !p) return;
 
-    const interval = await ui.input("Interval (e.g., 5m, 2h, 1d)");
-    if (!interval) return;
+    const interval = await ui.input("Interval (e.g., 5m, 2h, 1d)", undefined, { signal: scope.signal });
+    if (!scope.current() || !interval) return;
 
-    createCronLoop(ui, interval, p, true, expiresIn);
+    createCronLoop(ui, scope, interval, p, true, expiresIn);
   }
 
-  async function eventLoop(ui: ExtensionUIContext, prompt?: string, sourceOverride?: string, expiresIn?: string) {
-    const p = prompt || await ui.input("Prompt");
-    if (!p) return;
+  async function eventLoop(ui: ExtensionUIContext, scope: CommandScope, prompt?: string, sourceOverride?: string, expiresIn?: string) {
+    if (!scope.current()) return;
+    const p = prompt || await ui.input("Prompt", undefined, { signal: scope.signal });
+    if (!scope.current() || !p) return;
 
-    const source = sourceOverride || await ui.input("Pi event source (e.g., tool_execution_start, before_agent_start)");
-    if (!source) return;
+    const source = sourceOverride || await ui.input("Pi event source (e.g., tool_execution_start, before_agent_start)", undefined, { signal: scope.signal });
+    if (!scope.current() || !source) return;
 
     const trigger: Trigger = { type: "event", source };
     const taskBacklog = source === "tasks:created";
@@ -150,13 +159,15 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
     getTriggerSystem().add(entry);
     updateWidget();
     const bootstrapped = taskBacklog ? await maybeBootstrapTaskLoop?.(entry) : false;
+    if (!scope.current()) return;
     const adoption = taskBacklog
       ? `; adopts unfinished tasks${bootstrapped ? " (initial wake queued)" : ""}`
       : "";
     ui.notify(`Event loop #${entry.id} created: fires on "${source}"${adoption}`, "info");
   }
 
-  function dynamicLoop(ui: ExtensionUIContext, goal: string, expiresIn?: string) {
+  function dynamicLoop(ui: ExtensionUIContext, scope: CommandScope, goal: string, expiresIn?: string) {
+    if (!scope.current()) return;
     const trigger: Trigger = { type: "dynamic" };
     let entry: LoopEntry;
     try {
@@ -175,11 +186,12 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
     onDynamicLoopActivated?.(entry);
   }
 
-  async function viewLoops(ui: ExtensionUIContext): Promise<void> {
+  async function viewLoops(ui: ExtensionUIContext, scope: CommandScope): Promise<void> {
+    if (!scope.current()) return;
     const operationStore = getStore();
     const loops = operationStore.list();
     if (loops.length === 0) {
-      await ui.select("No loops configured", ["< Back"]);
+      await ui.select("No loops configured", ["< Back"], { signal: scope.signal });
       return;
     }
 
@@ -194,8 +206,8 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
     });
     choices.push("< Back");
 
-    const selected = await ui.select("Loops", choices);
-    if (getStore() !== operationStore || !selected || selected === "< Back") return;
+    const selected = await ui.select("Loops", choices, { signal: scope.signal });
+    if (!scope.current() || !selected || selected === "< Back") return;
 
     const match = selected.match(/#(\d+)/);
     if (match?.[1]) {
@@ -216,36 +228,37 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
           storageScope: options.getStorageScope?.(),
           nextFireAt: options.getNextFire?.(entry.id),
         }), ...body].join("\n");
-        const action = await ui.select(detail, actions);
-        if (getStore() !== operationStore) return;
+        const action = await ui.select(detail, actions, { signal: scope.signal });
+        if (!scope.current()) return;
 
         if (entry.completion && (action === "x Delete" || action === "- Pause")) {
           if (!cancelCompletion) { ui.notify("JEV control unavailable; use the registered LoopDelete or /jev-loop controller before retrying.", "error"); return; }
           const applied = await cancelCompletion(entry, action === "x Delete" ? "delete" : "pause");
-          if (getStore() !== operationStore) return;
+          if (!scope.current()) return;
           ui.notify(applied
             ? `JEV loop #${entry.id} ${action === "- Pause" ? "paused" : "canceled"}; local review drained. Remote service quiescence is not inferred.`
             : `JEV loop #${entry.id} changed; inspect LoopList before retrying.`, applied ? "info" : "warning");
-          return applied ? viewLoops(ui) : undefined;
+          return applied ? viewLoops(ui, scope) : undefined;
         }
         if (entry.orchestration && (action === "x Delete" || action === "- Pause")) {
           const result = await cancelOrchestration?.(entry.id, action === "x Delete" ? "delete" : "pause") ?? "rejected";
+          if (!scope.current()) return;
           ui.notify(orchestrationCancellationMessage(entry.id, result), result === "rejected" ? "error" : result === "deleted" ? "info" : "warning");
-          return viewLoops(ui);
+          return viewLoops(ui, scope);
         }
         if (action === "x Delete") {
           getTriggerSystem().remove(entry.id);
-          getStore().delete(entry.id);
+          operationStore.delete(entry.id);
           updateWidget();
           ui.notify(`Loop #${entry.id} deleted`, "info");
         } else if (action === "- Pause") {
-          getStore().pause(entry.id);
+          operationStore.pause(entry.id);
           getTriggerSystem().remove(entry.id);
           updateWidget();
           ui.notify(`Loop #${entry.id} paused`, "info");
         } else if (action === "* Resume") {
-          const resumed = getStore().resume(entry.id);
-          if (!resumed) return viewLoops(ui);
+          const resumed = operationStore.resume(entry.id);
+          if (!resumed) return viewLoops(ui, scope);
           getTriggerSystem().add(resumed);
           updateWidget();
           ui.notify(`Loop #${entry.id} resumed`, "info");
@@ -254,7 +267,7 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
       }
     }
 
-    return viewLoops(ui);
+    return viewLoops(ui, scope);
   }
 
   async function settings(ui: ExtensionUIContext) {
@@ -266,6 +279,8 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
   pi.registerCommand("loop", {
     description: "Create a loop. Prefix with --expires-in <duration> to override its lifetime; then use [interval] [prompt], event <source> <prompt>, or <goal> for a dynamic goal loop.",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
+      const scope = capture(ctx);
+      if (!scope.current()) return;
       const ui = ctx.ui;
       const expiry = extractExpiryOverride(args);
       if (expiry.error) {
@@ -280,17 +295,17 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
           "Create event-triggered loop",
           "View loops",
           "Settings",
-        ]);
+        ], { signal: scope.signal });
 
-        if (!choice) return;
-        if (choice.startsWith("Create scheduled")) return scheduleLoop(ui, undefined, expiry.expiresIn);
-        if (choice.startsWith("Create event")) return eventLoop(ui, undefined, undefined, expiry.expiresIn);
-        if (choice.startsWith("View loops")) return viewLoops(ui);
+        if (!scope.current() || !choice) return;
+        if (choice.startsWith("Create scheduled")) return scheduleLoop(ui, scope, undefined, expiry.expiresIn);
+        if (choice.startsWith("Create event")) return eventLoop(ui, scope, undefined, undefined, expiry.expiresIn);
+        if (choice.startsWith("View loops")) return viewLoops(ui, scope);
         return settings(ui);
       }
 
-      if (route.type === "event") return eventLoop(ui, route.prompt, route.source, expiry.expiresIn);
-      if (route.type === "cron") return createCronLoop(ui, route.interval, route.prompt, route.notifyEvery, expiry.expiresIn);
+      if (route.type === "event") return eventLoop(ui, scope, route.prompt, route.source, expiry.expiresIn);
+      if (route.type === "cron") return createCronLoop(ui, scope, route.interval, route.prompt, route.notifyEvery, expiry.expiresIn);
       if (route.type === "invalid-cron") {
         ui.notify(`Invalid cron expression: ${route.interval}`, "error");
         return;
@@ -299,7 +314,7 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
         ui.notify("Provide a prompt after the interval, e.g., /loop 5m check the deploy", "warning");
         return;
       }
-      return dynamicLoop(ui, route.goal, expiry.expiresIn);
+      return dynamicLoop(ui, scope, route.goal, expiry.expiresIn);
     },
   });
 }

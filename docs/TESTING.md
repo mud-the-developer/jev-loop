@@ -94,6 +94,14 @@ an injected event. It proves old goal/cancel dialogs cannot act in another
 branch, their native controls receive an abort signal, and vetoed navigation
 does not cancel a valid interaction. Fresh requests still work after the move.
 
+`test/loop-command-navigation.test.ts` exercises the legacy command through
+actual SDK tree navigation, with delayed menu, first/second scheduled/event
+inputs, and delete/pause/resume replies. Committed moves preserve state and
+abort old dialogs; vetoed moves retain their action. Fresh commands still work.
+No model/network is invoked. An isolated rollback fault also ensures cleanup
+uses the original store/dispatcher, not replacement work with the same ID;
+that injected boundary is not a physical-terminal reachability claim.
+
 `test/jev-loop-sdk.test.ts` covers actual verifier exits `[7,0]` across repair,
 one synthetic setup approval, and both allowed/blocked JEV dispatch. It also
 continues an already-approved goal after real tree navigation without renewing

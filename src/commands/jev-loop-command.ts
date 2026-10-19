@@ -4,6 +4,7 @@ import type { LoopStorageScope } from "../runtime/scope.js";
 import type { LoopStore } from "../store.js";
 import type { LoopEntry } from "../types.js";
 import { formatLoopLifecycle } from "../ui/lifecycle-presentation.js";
+import { createCommandGuard } from "./command-scope.js";
 
 interface Options {
   pi: ExtensionAPI;
@@ -29,29 +30,8 @@ function setupMessage(goal: string): string {
 
 export function registerJevLoopCommand(options: Options): void {
   const { pi, getStore } = options;
-  let lifecycle = new AbortController();
   let pending: { goal: string; current: () => boolean } | undefined;
-  const clear = () => { lifecycle.abort(); lifecycle = new AbortController(); pending = undefined; };
-  pi.on("session_start", clear);
-  pi.on("session_shutdown", clear);
-  // Tree navigation keeps the session ID and extension instance alive.
-  pi.on("session_tree", clear);
-
-  function capture(ctx: ExtensionCommandContext) {
-    const store = getStore();
-    const generation = options.getGeneration();
-    const session = ctx.sessionManager.getSessionId();
-    const cwd = ctx.cwd;
-    const caller = ctx.signal;
-    const signal = AbortSignal.any([lifecycle.signal, ...(caller ? [caller] : [])]);
-    const current = () => {
-      try {
-        return generation === options.getGeneration() && store === getStore()
-          && session === ctx.sessionManager.getSessionId() && cwd === ctx.cwd && !signal.aborted && options.isContextCurrent(ctx);
-      } catch { return false; }
-    };
-    return { current, signal };
-  }
+  const capture = createCommandGuard(options, () => { pending = undefined; });
 
   function hasJev(): boolean {
     const tool = pi.getAllTools().find(item => item.name === "jev_decide");
