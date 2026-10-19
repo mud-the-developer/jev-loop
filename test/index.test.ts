@@ -1079,7 +1079,7 @@ describe("native task fallback", () => {
     expect(tasksCommand?.handler).toBeDefined();
 
     const ui = { notify: vi.fn() };
-    await tasksCommand!.handler?.("Write README updates", { ui });
+    await tasksCommand!.handler?.("Write README updates", { ...ctx, cwd, ui });
 
     const taskPath = join(cwd, ".pi", "tasks", "tasks-test-session.json");
     const data = readJsonFile(taskPath);

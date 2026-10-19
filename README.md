@@ -48,6 +48,8 @@ The inherited ordinary command remains available for scheduled, event-driven, or
 
 The ordinary native menus also discard late dialog replies after a committed branch/session/context change. Existing scheduled work is not canceled; reopen the menu in the current context to submit a new action.
 
+Native fallback `/tasks` uses the same dialog boundary. Canceling its description prompt creates nothing; an intentionally blank description still defaults to the subject. Claimed tasks keep their existing token/lease checks, and task commands do not control workflow executions.
+
 Or use the tools directly:
 
 ```text

@@ -143,6 +143,8 @@ export function createTaskProviderRuntime(options: TaskProviderRuntimeOptions): 
       registerTasksCommand({
         pi,
         getNativeTaskStore: getOrCreateNativeTaskStore,
+        getGeneration: getSessionGeneration,
+        isContextCurrent: (ctx) => ctx.sessionManager.getSessionId() === getSessionId(),
         evaluateTaskBacklog,
         updateWidget,
       });

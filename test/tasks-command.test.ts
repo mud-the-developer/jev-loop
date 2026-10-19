@@ -3,7 +3,7 @@ import { registerTasksCommand } from "../src/commands/tasks-command.js";
 import { TaskStore } from "../src/task-store.js";
 import { createCtx, createMockPi } from "./helpers/mock-pi.js";
 
-function setup(evaluateTaskBacklog = vi.fn(async () => ({ created: false }))) {
+function setup(evaluateTaskBacklog = vi.fn(async () => ({ created: false })), overrides: Record<string, unknown> = {}) {
   const { pi, commandMap, emittedEvents } = createMockPi();
   const taskStore = new TaskStore(); // memory mode, no file I/O
   const updateWidget = vi.fn();
@@ -12,8 +12,15 @@ function setup(evaluateTaskBacklog = vi.fn(async () => ({ created: false }))) {
     getNativeTaskStore: () => taskStore,
     evaluateTaskBacklog,
     updateWidget,
+    ...overrides,
   });
-  const command = commandMap.get("tasks")!;
+  const registered = commandMap.get("tasks")!;
+  const command = { ...registered, handler: (args: string, ctx: any) => {
+    const defaults = createCtx();
+    if (!("cwd" in ctx)) ctx.cwd = defaults.cwd;
+    if (!("sessionManager" in ctx)) ctx.sessionManager = defaults.sessionManager;
+    return registered.handler!(args, ctx);
+  } };
   return { taskStore, updateWidget, evaluateTaskBacklog, emittedEvents, command };
 }
 
@@ -98,7 +105,7 @@ describe("registerTasksCommand", () => {
 
     await h.command.handler!("", ctx);
 
-    expect(ui.select).toHaveBeenCalledWith("Tasks", ["+ Create task", "< Back"]);
+    expect(ui.select).toHaveBeenCalledWith("Tasks", ["+ Create task", "< Back"], { signal: expect.any(AbortSignal) });
   });
 
   it("no-args invocation lists a mixed-status backlog with status icons", async () => {
@@ -125,7 +132,7 @@ describe("registerTasksCommand", () => {
       "> #2 [in_progress] in progress task",
       "ok #3 [completed] done task",
       "< Back",
-    ]);
+    ], { signal: expect.any(AbortSignal) });
   });
 
   it("no-args '+ Create task' prompts for subject/description and creates a task", async () => {
@@ -167,6 +174,51 @@ describe("registerTasksCommand", () => {
 
     const entry = h.taskStore.get("1");
     expect(entry?.description).toBe("Just a subject");
+  });
+
+  it("canceling description creates no task, event, widget update or backlog", async () => {
+    const h = setup();
+    const ui = { select: vi.fn().mockResolvedValueOnce("+ Create task").mockResolvedValueOnce(undefined),
+      input: vi.fn().mockResolvedValueOnce("Canceled fixture").mockResolvedValueOnce(undefined), notify: vi.fn() };
+    await h.command.handler("", { ui });
+    expect(h.taskStore.list()).toEqual([]); expect(h.emittedEvents).toEqual([]);
+    expect(h.updateWidget).not.toHaveBeenCalled(); expect(h.evaluateTaskBacklog).not.toHaveBeenCalled(); expect(ui.notify).not.toHaveBeenCalled();
+  });
+
+  it("description from a replaced task provider cannot create into its new store", async () => {
+    const original = new TaskStore(); const replacement = new TaskStore(); let current = original;
+    const h = setup(undefined, { getNativeTaskStore: () => current });
+    const ui = { select: vi.fn().mockResolvedValueOnce("+ Create task").mockResolvedValueOnce(undefined),
+      input: vi.fn(async (title: string) => { if (title === "Task subject") return "Old provider task"; current = replacement; return "Old description"; }), notify: vi.fn() };
+    await h.command.handler("", { ui });
+    expect(original.list()).toEqual([]); expect(replacement.list()).toEqual([]);
+    expect(h.emittedEvents).toEqual([]); expect(h.evaluateTaskBacklog).not.toHaveBeenCalled(); expect(ui.notify).not.toHaveBeenCalled();
+  });
+
+  it("an unlisted task row cannot select an existing task by a forged ID label", async () => {
+    const h = setup(); h.taskStore.create("Fixture", "Description"); const before = structuredClone(h.taskStore.get("1"));
+    const ui = { select: vi.fn().mockResolvedValueOnce("invented #1").mockResolvedValueOnce("x Delete").mockResolvedValueOnce(undefined), input: vi.fn(), notify: vi.fn() };
+    await h.command.handler("", { ui });
+    expect(h.taskStore.get("1")).toEqual(before); expect(ui.select).toHaveBeenCalledTimes(1);
+    expect(ui.input).not.toHaveBeenCalled(); expect(h.emittedEvents).toEqual([]);
+  });
+
+  it("an unlisted task action never asks for a claim token", async () => {
+    const h = setup(); h.taskStore.create("Claimed fixture", "Fixture description");
+    h.taskStore.claim("1", { claimId: "fixture-token", ownerSessionId: "fixture", ownerRuntimeId: "runtime", leaseMs: 60000 });
+    const before = structuredClone(h.taskStore.get("1"));
+    const ui = { select: vi.fn().mockResolvedValueOnce("> #1 [in_progress] Claimed fixture").mockResolvedValueOnce("invented action").mockResolvedValueOnce(undefined), input: vi.fn(), notify: vi.fn() };
+    await h.command.handler("", { ui });
+    expect(ui.input).not.toHaveBeenCalled(); expect(h.taskStore.get("1")).toEqual(before); expect(h.emittedEvents).toEqual([]);
+  });
+
+  it("committed creation remains valid but stale backlog acknowledgement is suppressed", async () => {
+    let generation = 0; let release!: (value: { created: boolean }) => void;
+    const wait = new Promise<{ created: boolean }>(resolve => { release = resolve; });
+    const evaluate = vi.fn(async () => wait); const h = setup(evaluate, { getGeneration: () => generation }); const ctx = createCtx();
+    const operation = h.command.handler("Authorized task", ctx);
+    expect(h.taskStore.list()).toHaveLength(1); generation++; release({ created: false }); await operation;
+    expect(h.taskStore.list()).toHaveLength(1); expect(h.emittedEvents).toHaveLength(1); expect(ctx.notifications).toEqual([]);
   });
 
   it("selecting a task and choosing Complete transitions it and emits tasks:completed", async () => {
