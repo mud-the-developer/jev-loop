@@ -180,6 +180,24 @@ There is no claimed dollar cap. Ordinary permission gates can still block a
 nested JEV call. Persisted intent survives only according to the normal storage
 contract; approval is process-local and is never restored from disk.
 
+## Persistence and failure diagnostics
+
+Stored JEV controller identity, working directory, completion-version counter,
+identity timestamps and review reservations are validated on reload. Malformed current state uses the
+existing previous-snapshot recovery; if neither snapshot is valid, corruption
+remains visible and the bad files are not silently replaced with guessed
+identity, cwd or approval. Ordinary legacy controllers remain readable.
+Expired, structurally valid reservations are still readable, not authority to
+retry; restart requires the existing fresh approval rules.
+
+Verifier-start failures and rejected/unavailable/malformed JEV advice identify
+the failed phase with safe next actions, without copying raw provider errors or
+verifier output. A declined setup requires a fresh explicit user request, not
+auto-resubmission. Trusted storage corruption and settlement I/O errors stay
+visible. A settlement error can occur after a write: inspect the current store
+and external effects before deciding what, if anything, to retry. An error or
+missing ID does not prove rollback, completion, or permission for another run.
+
 ## Verification scope
 
 Deterministic tests cover public tool acceptance, actual executable exit/signal

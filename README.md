@@ -100,6 +100,17 @@ Approve the exact bounded setup once in the native dialog. When ready, call `Loo
 
 No repeated setup approval for ordinary rework in the same live scope. Restart, cancellation, invalid execution, or a provider error requires fresh approval; existing mandatory permission/transmission gates remain. A fire-cap pause is not success and cannot extend its budget. [Contract, examples, evidence and limitations](./docs/JEV_LOOPS.md).
 
+### When completion is held or fails
+
+| Situation | Next action |
+|---|---|
+| Required check exits nonzero | Repair and continue within the same approved budget; no repeated setup approval |
+| Fixed verifier cannot start/finish | Inspect the command locally; cancel and recreate if the fixed scope is wrong |
+| JEV advice is unavailable, blocked or malformed | Check the configured provider and tool permissions; do not retry automatically |
+| Local storage/settlement error | Inspect current state first: a write may already have happened; never infer completion or rollback from an absent ID |
+
+Malformed JEV persistence metadata follows previous-snapshot recovery or a visible corruption error, never guessed identity/cwd or restored approval.
+
 ## What it provides
 
 - Cron, event, hybrid, dynamic goal, and opt-in workflow loops

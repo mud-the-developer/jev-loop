@@ -100,6 +100,21 @@ continues an already-approved goal after real tree navigation without renewing
 its budget or repeating approval. Parent messages and JEV/UI are synthetic;
 these cases make no external model calls and do not replace live acceptance.
 
+## Persistence and diagnostic checks
+
+`test/jev-completion-store.test.ts` uses isolated file-backed snapshots to
+check JEV metadata types, identity/cwd validity, bounded review expiry,
+previous-snapshot recovery, visible failure when both copies are invalid, and
+compatibility controls for ordinary legacy data and expired valid reservations.
+Recovery never invents cwd/identity or restores a grant.
+
+The tool suite distinguishes safe verifier/JEV diagnostics from trusted local
+storage errors. Its post-write fault injection performs a real file-backed
+settlement before raising an error, proving callers do not mistake uncertainty
+for a clean hold or rollback. This injected boundary is not an OS-crash test or
+proof of every filesystem failure mode. Raw provider/verifier messages are not
+reflected into normal diagnostic output.
+
 ## Harness review campaigns
 
 See [bounded review campaigns](./HARNESS_REVIEW_CAMPAIGNS.md) for the test-only

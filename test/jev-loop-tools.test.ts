@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { StoreCorruptionError } from "../src/reducer-backed-store.js";
 import { LoopStore } from "../src/store.js";
 import { canResumeFromInspection } from "../src/ui/lifecycle-presentation.js";
 import { candidates, deferred, evidence, fixture, outcome, policy, recommendation, text } from "./helpers/jev-loop-fixture.js";
@@ -143,6 +144,61 @@ describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool accep
     const h = fixture(); await h.create(); const before = structuredClone(h.store.get("1"));
     h.executeTool.mockResolvedValueOnce(outcome(details)); await h.complete(); expect(h.store.get("1")).toEqual(before);
     await h.complete({ completionEvidence: "New evidence supports all criteria." }); expect(h.confirm).toHaveBeenCalledTimes(2);
+  });
+
+  it("verifier failures identify the local phase without exposing raw errors", async () => {
+    const h = fixture(); await h.create(); const before = structuredClone(h.store.get("1"));
+    h.exec.mockRejectedValueOnce(new Error("PRIVATE_VERIFIER_OUTPUT"));
+    const message = text(await h.complete());
+    expect(message).toContain("fixed verifier"); expect(message).toContain("cancel and recreate");
+    expect(message).not.toContain("PRIVATE_VERIFIER_OUTPUT"); expect(h.store.get("1")).toEqual(before);
+    expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("provider failures identify JEV decision handling without exposing provider text", async () => {
+    const h = fixture(); await h.create(); const bad = outcome(undefined, true);
+    bad.result.content[0]!.text = "PRIVATE_PROVIDER_OUTPUT"; h.executeTool.mockResolvedValueOnce(bad);
+    const message = text(await h.complete());
+    expect(message).toContain("JEV decision"); expect(message).toContain("permissions");
+    expect(message).not.toContain("PRIVATE_PROVIDER_OUTPUT"); expect(h.store.get("1")).toBeDefined();
+  });
+
+  it("a canceled reapproval is not an invitation to resubmit automatically", async () => {
+    const path = file(); const original = fixture(path); await original.create();
+    const restarted = fixture(path); restarted.confirm.mockResolvedValue(false);
+    const message = text(await restarted.complete());
+    expect(message).toContain("fresh explicit user request");
+    expect(restarted.exec).not.toHaveBeenCalled(); expect(restarted.store.get("1")).toBeDefined();
+  });
+
+  it("trusted storage corruption stays visible rather than becoming a provider hold", async () => {
+    const h = fixture(); await h.create();
+    vi.spyOn(h.store, "reserveCompletionReview").mockImplementationOnce(() => { throw new StoreCorruptionError("fixture-store"); });
+    await expect(h.complete()).rejects.toThrow(StoreCorruptionError);
+    expect(h.exec).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("reservation I/O failures are not mislabeled as rejected approval", async () => {
+    const h = fixture(); await h.create();
+    vi.spyOn(h.store, "reserveCompletionReview").mockImplementationOnce(() => { throw new Error("RESERVATION_IO_FAILURE"); });
+    await expect(h.complete()).rejects.toThrow("RESERVATION_IO_FAILURE");
+    expect(h.exec).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled();
+  });
+
+  it("trusted state-read failures are not mislabeled as JEV failures", async () => {
+    const h = fixture(); await h.create();
+    h.executeTool.mockImplementationOnce(async () => {
+      vi.spyOn(h.store, "get").mockImplementationOnce(() => { throw new Error("READ_IO_FAILURE"); });
+      return outcome(recommendation());
+    });
+    await expect(h.complete()).rejects.toThrow("READ_IO_FAILURE");
+  });
+
+  it("post-write settlement errors surface even if the controller was already removed", async () => {
+    const path = file(); const h = fixture(path); await h.create(); const stop = h.store.stopDynamic.bind(h.store);
+    vi.spyOn(h.store, "stopDynamic").mockImplementationOnce((...args) => { stop(...args); throw new Error("POST_WRITE_FAILURE"); });
+    await expect(h.complete()).rejects.toThrow("POST_WRITE_FAILURE");
+    expect(new LoopStore(path).get("1")).toBeUndefined();
   });
 
   it("malformed result JSON cannot complete despite a valid-looking details object", async () => {
