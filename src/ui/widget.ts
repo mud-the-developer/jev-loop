@@ -1,7 +1,9 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { MonitorManager } from "../monitor-manager.js";
+import type { CompletionReviewPhase } from "../runtime/jev-loop-runtime.js";
 import type { LoopStore } from "../store.js";
 import type { LoopEntry } from "../types.js";
+import { renderGoalSummary } from "./goal-dashboard.js";
 import { orchestrationWidgetSummary } from "./orchestration-presentation.js";
 import { deriveWorkflowActivity, formatCompactWorkflowDuration } from "./workflow-presentation.js";
 
@@ -14,6 +16,7 @@ export class LoopWidget {
   private uiCtx: ExtensionUIContext | undefined;
   private taskSummaryProvider: (() => TaskSummary) | undefined;
   private activityRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  private reviewPhase: (entry: LoopEntry) => CompletionReviewPhase | undefined = () => undefined;
 
   constructor(
     private store: LoopStore,
@@ -26,7 +29,12 @@ export class LoopWidget {
 
   setStore(store: LoopStore) {
     this.clearActivityRefresh();
+    this.uiCtx?.setWidget("jev-loop", undefined);
     this.store = store;
+  }
+
+  setReviewPhaseProvider(provider: (entry: LoopEntry) => CompletionReviewPhase | undefined) {
+    this.reviewPhase = provider;
   }
 
   setTaskSummaryProvider(provider: (() => TaskSummary) | undefined) {
@@ -37,6 +45,11 @@ export class LoopWidget {
     if (!this.uiCtx) return;
     this.clearActivityRefresh();
     this.uiCtx.setStatus("loops", this.computeStatus());
+    const goals = this.store.list().filter(entry => entry.completion);
+    this.uiCtx.setWidget("jev-loop", goals.length ? (_tui, theme) => ({
+      render: (width: number) => renderGoalSummary(this.store.list().filter(entry => entry.completion), this.reviewPhase, theme, width),
+      invalidate() {},
+    }) : undefined);
     this.scheduleActivityRefresh();
   }
 
@@ -81,6 +94,7 @@ export class LoopWidget {
   dispose() {
     this.clearActivityRefresh();
     this.uiCtx?.setStatus("loops", undefined);
+    this.uiCtx?.setWidget("jev-loop", undefined);
   }
 
   private scheduleActivityRefresh() {

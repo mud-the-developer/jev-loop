@@ -48,14 +48,14 @@ export function fixture(path?: string) {
   } as unknown as ExtensionAPI;
   const trigger = { add: vi.fn(), remove: vi.fn() };
   const activate = vi.fn();
-  registerLoopTools({ pi, getStore: () => store, getTriggerSystem: () => trigger,
+  const runtime = registerLoopTools({ pi, getStore: () => store, getTriggerSystem: () => trigger,
     getScheduler: () => ({ nextFire: () => undefined }), getMonitorManager: () => ({ get: () => undefined }),
     updateWidget: vi.fn(), maybeBootstrapTaskLoop: async () => false, isTaskSystemReady: () => true,
     onDynamicLoopActivated: activate, verify: exec });
   const call = (name: string, args: any, signal?: AbortSignal) => toolMap.get(name)!.execute("fixture", args, signal, undefined, ctx);
   return {
     get store() { return store; }, replaceStore: (next: LoopStore) => { store = next; },
-    pi, ctx, toolMap, exec, confirm, executeTool, trigger, activate, call,
+    pi, ctx, toolMap, exec, confirm, executeTool, trigger, activate, call, runtime,
     create: (extra: Record<string, unknown> = {}, signal?: AbortSignal) => call("LoopCreate", { trigger: "idle", triggerType: "idle", prompt: "원래 사용자 요청", completion: structuredClone(policy), maxFires: 3, expiresIn: "1h", ...extra }, signal),
     complete: (extra: Record<string, unknown> = {}, signal?: AbortSignal) => call("LoopUpdate", { id: "1", status: "completed", completionEvidence: evidence, ...extra }, signal),
     shutdown: async () => { for (const handler of handlers.get("session_shutdown") ?? []) await handler({}, ctx); },

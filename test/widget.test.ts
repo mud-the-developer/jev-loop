@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoopStore } from "../src/store.js";
 import { LoopWidget } from "../src/ui/widget.js";
+import { policy } from "./helpers/jev-loop-fixture.js";
 
 function createMockMonitorManager() {
   const monitors: Array<{
@@ -27,15 +28,16 @@ describe("LoopWidget status rendering", () => {
   let monitorManager: ReturnType<typeof createMockMonitorManager>;
   let widget: LoopWidget;
   let setStatus: ReturnType<typeof vi.fn>;
+  let setWidget: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     store = new LoopStore();
     monitorManager = createMockMonitorManager();
     widget = new LoopWidget(store, monitorManager as any);
-    setStatus = vi.fn();
+    setStatus = vi.fn(); setWidget = vi.fn();
     widget.setUICtx({
       setStatus,
-      setWidget: vi.fn(),
+      setWidget,
     } as any);
   });
 
@@ -351,6 +353,15 @@ describe("LoopWidget status rendering", () => {
 
     widget.update();
     expect(latestStatusCall()).toEqual(["loops", "□ 3 tasks | next: Write README updates"]);
+  });
+
+  it("adds a compact JEV summary without starting work and clears it on store rebind", () => {
+    store.create({ type: "dynamic" }, "Fixture goal", { recurring: true, maxFires: 5, completion: policy, completionCwd: process.cwd() });
+    const before = structuredClone(store.list()); widget.setReviewPhaseProvider(() => "verification"); widget.update();
+    const factory = setWidget.mock.calls.filter(call => call[0] === "jev-loop").at(-1)![1];
+    const component = factory({}, { fg: (_token: string, text: string) => text, bold: (text: string) => text });
+    expect(component.render(48).join("\n")).toContain("VERIFYING"); expect(store.list()).toEqual(before);
+    widget.setStore(new LoopStore()); expect(setWidget).toHaveBeenLastCalledWith("jev-loop", undefined);
   });
 
   it("clears status after active content disappears", () => {

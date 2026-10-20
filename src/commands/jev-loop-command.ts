@@ -1,8 +1,10 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { VERIFICATION_SUPPORTED } from "../completion-verifier.js";
+import type { CompletionReviewPhase } from "../runtime/jev-loop-runtime.js";
 import type { LoopStorageScope } from "../runtime/scope.js";
 import type { LoopStore } from "../store.js";
 import type { LoopEntry } from "../types.js";
+import { goalText, showGoalDashboard } from "../ui/goal-dashboard.js";
 import { formatLoopLifecycle } from "../ui/lifecycle-presentation.js";
 import { createCommandGuard } from "./command-scope.js";
 
@@ -14,6 +16,7 @@ interface Options {
   cancelLoop: (entry: LoopEntry) => Promise<boolean>;
   getStorageScope: () => LoopStorageScope;
   getNextFire: (id: string) => number | undefined;
+  getReviewPhase?: (entry: LoopEntry) => CompletionReviewPhase | undefined;
 }
 
 function setupMessage(goal: string): string {
@@ -104,7 +107,7 @@ export function registerJevLoopCommand(options: Options): void {
   }
 
   pi.registerCommand("jev-loop", {
-    description: "Start a JEV-assisted goal: /jev-loop <goal>. Inspect with status [id], cancel with cancel [id], or open the menu. Setup is not approval.",
+    description: "Start a JEV-assisted goal: /jev-loop <goal>. Inspect with status [id], cancel with cancel [id], or open the native dashboard (RPC menu). Setup is not approval.",
     handler: async (args, ctx) => {
       const { current, signal } = capture(ctx);
       if (!current()) return;
@@ -120,6 +123,21 @@ export function registerJevLoopCommand(options: Options): void {
         }
         if (/^(status|cancel)(?:\s|$)/.test(input)) { ctx.ui.notify("Use /jev-loop status [id] or /jev-loop cancel [id].", "warning"); return; }
         let goal = input;
+        if (!goal && ctx.mode === "tui") {
+          const action = await showGoalDashboard(ctx, { entries: () => getStore().list().filter(entry => entry.completion),
+            pendingGoal: () => pending?.current() ? pending.goal : undefined, phase: entry => options.getReviewPhase?.(entry),
+            storageScope: options.getStorageScope, nextFire: options.getNextFire, current, signal });
+          if (!current() || !action || action.type === "close") return;
+          if (action.type === "cancel") {
+            const accepted = await ctx.ui.confirm(`Cancel JEV loop #${action.entry.id}?`, `Cancel only this observed controller and drain its owned local review?\n${goalText(action.entry.prompt).slice(0, 200)}`, { signal });
+            if (!current() || !accepted) return;
+            const canceled = await options.cancelLoop(action.entry);
+            if (current()) ctx.ui.notify(canceled ? `JEV loop #${action.entry.id} canceled; owned local review drained.` : "Controller changed; inspect /jev-loop before canceling again.", canceled ? "info" : "warning");
+            return;
+          }
+          goal = (await ctx.ui.input("Goal (your language; the agent prepares English JEV policy)", undefined, { signal }))?.trim() ?? "";
+          if (!current() || !goal) return;
+        }
         if (!goal) {
           const action = await ctx.ui.select("JEV loop", ["Start a goal", "Status", "Cancel a loop"], { signal });
           if (!current() || action === undefined) return;
