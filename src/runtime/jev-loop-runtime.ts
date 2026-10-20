@@ -45,6 +45,8 @@ function cancellable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+export type CompletionReviewPhase = "checking" | "approval" | "verification" | "advice";
+
 export function createJevLoopRuntime(options: Options) {
   let epoch = 0;
   let closed = false;
@@ -53,7 +55,15 @@ export function createJevLoopRuntime(options: Options) {
   const previous = new Map<string, string>();
   const owned = new Set<AbortController>();
   const processes = new Set<Promise<unknown>>();
-  const reviews = new Map<string, { abort: () => void; done: Promise<void> }>();
+  const reviews = new Map<string, { abort: () => void; done: Promise<void>; phase: CompletionReviewPhase;
+    reviewId: string; store: CompletionStore; epoch: number; generation: number | undefined; signal: AbortSignal }>();
+
+  function getReviewPhase(entry: LoopEntry): CompletionReviewPhase | undefined {
+    const local = reviews.get(fingerprint(entry));
+    if (!local || closed || local.signal.aborted || local.epoch !== epoch || local.generation !== options.getGeneration?.()
+      || local.store !== options.getStore() || entry.completionReview?.id !== local.reviewId) return undefined;
+    return local.phase;
+  }
 
   function scope(ctx: ExtensionToolContext, expiresAt: number, caller?: AbortSignal) {
     const store = options.getStore();
@@ -129,7 +139,9 @@ export function createJevLoopRuntime(options: Options) {
     busy.add(entry.id);
     let finished!: () => void;
     const done = new Promise<void>(resolve => { finished = resolve; });
-    reviews.set(key, { abort: operation.abort, done });
+    const observation = { abort: operation.abort, done, phase: "checking" as CompletionReviewPhase, reviewId,
+      store: operation.store, epoch, generation: options.getGeneration?.(), signal: operation.signal };
+    reviews.set(key, observation);
     function check() {
       operation.check();
       if (JSON.stringify(operation.store.get(entry.id)) !== snapshot) throw new StaleCompletionScopeError("Controller changed during review; inspect LoopList and resubmit.");
@@ -145,6 +157,7 @@ export function createJevLoopRuntime(options: Options) {
       snapshot = JSON.stringify(reserved);
       const approval = approvals.get(key);
       if (approval?.store !== operation.store || approval.scope !== operation.key) {
+        observation.phase = "approval";
         try { await confirm(ctx, policy, entry.maxFires!, entry.expiresAt, operation); }
         catch {
           check();
@@ -156,6 +169,7 @@ export function createJevLoopRuntime(options: Options) {
       check();
       let verified: VerificationResult;
       try {
+        observation.phase = "verification";
         const process = (options.verify ?? verifyCompletion)(policy.verification.command, [...policy.verification.args], { cwd: operation.cwd, timeout: VERIFICATION_TIMEOUT_MS, signal: operation.signal });
         processes.add(process);
         try { verified = await process; } finally { processes.delete(process); }
@@ -172,6 +186,7 @@ export function createJevLoopRuntime(options: Options) {
       if (!available(ctx)) return held("Public jev_decide unavailable; restore it and explicitly resubmit with approval.");
       let advice: ReturnType<typeof readCompletionAdvice>;
       try {
+        observation.phase = "advice";
         const result = await cancellable(ctx.executeTool("jev_decide", completionPacket(policy, evidence, verified.code), { signal: operation.signal }), operation.signal);
         advice = readCompletionAdvice(result);
       } catch {
@@ -226,5 +241,5 @@ export function createJevLoopRuntime(options: Options) {
   }
   options.pi.on("session_shutdown", shutdown);
   options.pi.on("session_start", () => { closed = false; epoch++; approvals.clear(); previous.clear(); });
-  return { setup, review, cancel, shutdown };
+  return { setup, review, cancel, shutdown, getReviewPhase };
 }

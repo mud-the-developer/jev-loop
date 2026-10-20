@@ -59,6 +59,41 @@ it.skipIf(process.platform !== "win32")("Windows goal startup fails before a mes
 });
 
 describe("platform-independent command inspection", () => {
+  it("opens a read-only native dashboard for a blank TUI command", async () => {
+    const h = await setup(); Object.assign(h.ctx, { mode: "tui" });
+    const custom = vi.fn(async () => ({ type: "close" })); Object.assign(h.ctx.ui, { custom });
+    await h.command("");
+    expect(custom).toHaveBeenCalledTimes(1); expect(h.select).not.toHaveBeenCalled();
+    expect(h.sentUserMessages).toEqual([]); expect(h.confirm).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled();
+    expect(await h.listed()).toContain("No loops");
+  });
+  it("the actual TUI factory renders peer goals and recovery without effects", async () => {
+    const h = await setup(true); const store = new LoopStore(h.path);
+    store.create({ type: "dynamic" }, "Fixture rendered goal", { recurring: true, maxFires: 5, completion: policy, completionCwd: h.ctx.cwd });
+    const before = structuredClone(store.list()); Object.assign(h.ctx, { mode: "tui" });
+    const custom = vi.fn(async (factory: any) => {
+      let result: unknown;
+      const component = factory({ terminal: { rows: 40 }, requestRender() {} }, { fg: (_token: string, text: string) => text, bold: (text: string) => text }, {}, (action: unknown) => { result = action; });
+      const rendered = component.render(120).join("\n");
+      expect(rendered).toContain("ACCEPTANCE CRITERIA"); expect(rendered).toContain(policy.criteria[0]); expect(rendered).toContain("RECOVERY");
+      component.handleInput("\u001b"); component.dispose(); return result;
+    });
+    Object.assign(h.ctx.ui, { custom }); await h.command("");
+    expect(store.list()).toEqual(before); expect(h.confirm).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled(); expect(h.sentUserMessages).toEqual([]);
+  });
+  it("dashboard cancel requires confirmation and uses the observed controller identity", async () => {
+    const h = await setup(true); const store = new LoopStore(h.path);
+    const entry = store.create({ type: "dynamic" }, "Fixture", { recurring: true, maxFires: 5, completion: policy, completionCwd: h.ctx.cwd });
+    Object.assign(h.ctx, { mode: "tui" }); Object.assign(h.ctx.ui, { custom: vi.fn(async () => ({ type: "cancel", entry: structuredClone(entry) })) });
+    h.confirm.mockResolvedValueOnce(false); await h.command(""); expect(store.get("1")).toBeDefined();
+    h.confirm.mockResolvedValueOnce(true); await h.command(""); expect(store.get("1")).toBeUndefined();
+    expect(h.confirm).toHaveBeenCalledTimes(2); expect(h.sentUserMessages).toEqual([]); expect(h.executeTool).not.toHaveBeenCalled();
+  });
+  it("retains the native menu for RPC rather than opening an unsupported custom screen", async () => {
+    const h = await setup(); Object.assign(h.ctx, { mode: "rpc" });
+    const custom = vi.fn(); Object.assign(h.ctx.ui, { custom }); await h.command("");
+    expect(custom).not.toHaveBeenCalled(); expect(h.select).toHaveBeenCalledWith("JEV loop", ["Start a goal", "Status", "Cancel a loop"], expect.any(Object));
+  });
   it.each(["status nope", "cancel nope", "status 1 2", "cancel 1 2"])("rejects invalid controls: %s", async args => {
     const h = await setup(); await h.command(args);
     expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("Use /jev-loop"), "warning");

@@ -552,6 +552,7 @@ export default function (pi: ExtensionAPI) {
     cancelOrchestration: (id, action) => orchestrationRuntime!.cancel(id, action),
   });
   shutdownCompletionReviews = completionRuntime.shutdown;
+  widget.setReviewPhaseProvider(completionRuntime.getReviewPhase);
 
   registerSubagentOrchestrationTools({
     pi,
@@ -607,6 +608,7 @@ export default function (pi: ExtensionAPI) {
     getGeneration: () => sessionGeneration,
     isContextCurrent: (ctx) => _sessionId === ctx.sessionManager.getSessionId() && isCurrentExtensionContext(),
     cancelLoop: completionRuntime.cancelLoop,
+    getReviewPhase: completionRuntime.getReviewPhase,
     getStorageScope: () => resolveLoopStorageScope(getScopeOptions(), _sessionId),
     getNextFire: (id) => scheduler.nextFire(id),
   });

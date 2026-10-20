@@ -89,6 +89,18 @@ committed fixtures, not transcripts or secrets.
 
 ## Offline UX quality checks
 
+`npm run test:e2e:dashboard` produces bounded synthetic component performance,
+width/height/goal-count checks and six keyboard-intent task proxies under ignored
+`.artifacts/dashboard/`. It does not collect human time or satisfaction. See
+[DASHBOARD_EVALUATION.md](./DASHBOARD_EVALUATION.md) for ISO/UMUX-Lite/visual
+review sources, baseline limits and unscored human measures.
+
+`test/goal-dashboard.test.ts` checks responsive native layout, keyboard exit,
+read-only intent, control/bidi safety, motion-off and view cleanup.
+`test/jev-review-presentation.test.ts` distinguishes actual local verifier/advice
+observations from persisted reservations; it never derives approval from state.
+Existing native setup/cancellation ownership and RPC-menu tests still apply.
+
 `test/jev-loop-navigation.test.ts` uses the real SDK navigation API, not only
 an injected event. It proves old goal/cancel dialogs cannot act in another
 branch, their native controls receive an abort signal, and vetoed navigation

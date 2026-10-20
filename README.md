@@ -32,7 +32,7 @@ Start one self-paced JEV-assisted goal in your own language, then inspect or can
 /jev-loop cancel 1
 ```
 
-`/jev-loop` without arguments opens the native menu. The parent prepares the English criteria and a known fixed verifier; the exact setup is approved once before creation. Defaults proposed for approval are five fires and one hour, not unlimited execution. If the agent is busy, setup waits only in memory and `/jev-loop cancel` can revoke it before handoff. No backend is installed or configured automatically.
+`/jev-loop` without arguments opens the native goal dashboard in TUI mode (RPC keeps its native menu). The dashboard provides goal selection, observed review phases, criteria and recovery details: `↑↓` select, `Tab` focus details, `PgUp/PgDn` scroll, `g` prepare a goal, `x` request explicit cancellation, `m` toggle motion, `Esc` close. A compact goal summary stays above the editor. [Design and measurement contract](./docs/DASHBOARD_EVALUATION.md). The parent prepares the English criteria and a known fixed verifier; the exact setup is approved once before creation. Defaults proposed for approval are five fires and one hour, not unlimited execution. If the agent is busy, setup waits only in memory and `/jev-loop cancel` can revoke it before handoff. No backend is installed or configured automatically.
 
 Moving within `/tree` cancels unfinished setup/dialog interactions from the old branch. Existing controllers stay session-wide with their original policy and budget; canceling a navigation does not cancel a valid dialog.
 
