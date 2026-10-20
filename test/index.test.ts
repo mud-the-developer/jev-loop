@@ -13,12 +13,19 @@ import { TriggerSystem } from "../src/trigger-system.js";
 import type { LoopEntry, LoopFireOrigin } from "../src/types.js";
 import { createCtx, createMockPi, flushAsync } from "./helpers/mock-pi.js";
 
-async function expectIdleMonitorWake(receipts: Pick<ReturnType<typeof createMockPi>, "emittedEvents" | "sentMessages">, prompt: string, exitCode: number): Promise<void> {
-  // Child close and wake delivery can occur after an arbitrary sleep.
+async function expectMonitorFinished(receipts: Pick<ReturnType<typeof createMockPi>, "emittedEvents">, exitCode: number): Promise<void> {
+  // Shell startup and child close are not bounded by a fixed cross-platform sleep.
   await vi.waitFor(() => {
     const terminal = receipts.emittedEvents.filter(event => event.name === "monitor:finished" && event.payload.monitorId === "1");
     expect(terminal).toHaveLength(1);
     expect(terminal[0].payload).toMatchObject({ monitorId: "1", status: exitCode === 0 ? "completed" : "error", exitCode });
+  }, { timeout: 5000, interval: 10 });
+  await flushAsync();
+}
+
+async function expectIdleMonitorWake(receipts: Pick<ReturnType<typeof createMockPi>, "emittedEvents" | "sentMessages">, prompt: string, exitCode: number): Promise<void> {
+  await expectMonitorFinished(receipts, exitCode);
+  await vi.waitFor(() => {
     expect(receipts.sentMessages).toHaveLength(1);
     expect(receipts.sentMessages[0].message.content).toContain(prompt);
   }, { timeout: 5000, interval: 10 });
@@ -3041,8 +3048,8 @@ describe("monitor tool wrappers", () => {
     expect((sentCustomMessages[0].message as { content: string }).content).toContain("Monitor finished without event dispatch");
   }, 10000);
 
-  it("buffers onDone monitor completion until agent_end when the agent is busy", async () => {
-    const { pi, toolMap, extensionHandlers, sentMessages: sentCustomMessages } = createMockPi();
+  it.each(["echo 'monitor done while busy'", 'node -e "setTimeout(() => {}, 750)"'])("buffers onDone monitor completion until agent_end when the agent is busy (%s)", async command => {
+    const { pi, toolMap, extensionHandlers, emittedEvents, sentMessages: sentCustomMessages } = createMockPi();
 
     extension(pi as any);
     await vi.advanceTimersByTimeAsync(6100);
@@ -3064,18 +3071,18 @@ describe("monitor tool wrappers", () => {
     expect(monitorCreate?.execute).toBeDefined();
 
     const result = await monitorCreate!.execute?.("1", {
-      command: "echo 'monitor done while busy'",
+      command,
       onDone: "Monitor finished while agent busy",
     });
     expect(result.content[0].text).toContain("Completion wake loop");
 
-    await new Promise(r => setTimeout(r, 500));
+    await expectMonitorFinished({ emittedEvents }, 0);
     expect(sentCustomMessages).toHaveLength(0);
 
     for (const handler of extensionHandlers.get("agent_end") ?? []) {
       await handler(null, ctx);
     }
-    await new Promise(r => setTimeout(r, 50));
+    await expectIdleMonitorWake({ emittedEvents, sentMessages: sentCustomMessages }, "Monitor finished while agent busy", 0);
 
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain("Monitor finished while agent busy");

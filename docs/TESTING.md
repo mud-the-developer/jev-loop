@@ -134,6 +134,16 @@ three distinct fixtures as `met`, `unmet`, `unknown`; actual responses passed
 physical TUI usability or general model quality. Bounded local response/model/
 usage metadata is ignored under `.artifacts/verification/`, not a transcript.
 
+## Monitor completion readiness
+
+The busy-agent onDone regression in `test/index.test.ts` observes exactly one
+`monitor:finished` receipt with expected status/exit code before moving the
+agent to idle. Immediate and deliberately delayed commands share this path;
+a fixed 500 ms sleep is not evidence that a child completed. The test still
+requires zero delivery while busy, then exactly one completion wake after
+`agent_end`, not a monitor-start notification. Idle wake checks use the same
+terminal barrier with a bounded timeout; no production deadline was changed.
+
 ## Persistence and diagnostic checks
 
 `test/jev-completion-store.test.ts` uses isolated file-backed snapshots to
