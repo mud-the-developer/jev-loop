@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { operatingBudgetExhausted, validateAdaptiveBudget } from "./adaptive-budget.js";
 import { validateCompletionPolicy } from "./jev-completion.js";
 import { DEFAULT_LOOP_EXPIRY_MS, expiresAtFromDuration, parseLoopDurationMs } from "./loop-expiry.js";
 import { atMaxFires, type LoopReducerEffect, type LoopReducerEvent, type LoopReducerState, reduceLoopState } from "./loop-reducer.js";
@@ -70,6 +71,7 @@ function normalizeWorkflowRunState(workflow: WorkflowRunState): WorkflowRunState
 const LOOP_PAUSE_KINDS = new Set<LoopPauseKind>([
   "administrative",
   "controller_limit",
+  "budget_limit",
   "semantic_terminal",
   "orchestration_settlement",
 ]);
@@ -124,6 +126,8 @@ function completionString(value: unknown): value is string {
 function normalizeLoopEntry(entry: LoopEntry): LoopEntry {
   const pause = normalizePauseRecord(entry);
   validateControllerDomain(entry);
+  validateAdaptiveBudget(entry);
+  if (pause?.kind === "budget_limit" && !entry.adaptiveBudget) throw new Error("Orphaned operating budget pause.");
   if (entry.completion) {
     if (!completionString(entry.id) || !completionString(entry.completionId) || !completionString(entry.completionCwd)
       || !Number.isSafeInteger(entry.createdAt) || !Number.isSafeInteger(entry.updatedAt) || !Number.isSafeInteger(entry.expiresAt)
@@ -244,7 +248,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     );
   }
 
-  create(trigger: Trigger, prompt: string, opts: { recurring: boolean; autoTask?: boolean; taskBacklog?: boolean; readOnly?: boolean; maxFires?: number; expiresIn?: string; completion?: LoopEntry["completion"]; completionCwd?: string; completionExpiresAt?: number; dynamic?: Partial<DynamicLoopState>; workflow?: WorkflowDefinition; actor?: WorkflowRuntimeActor; orchestration?: { definition: OrchestrationDefinitionInput; owner: OrchestrationActor } }): LoopEntry {
+  create(trigger: Trigger, prompt: string, opts: { recurring: boolean; autoTask?: boolean; taskBacklog?: boolean; readOnly?: boolean; maxFires?: number; expiresIn?: string; completion?: LoopEntry["completion"]; completionCwd?: string; completionExpiresAt?: number; adaptiveBudget?: LoopEntry["adaptiveBudget"]; dynamic?: Partial<DynamicLoopState>; workflow?: WorkflowDefinition; actor?: WorkflowRuntimeActor; orchestration?: { definition: OrchestrationDefinitionInput; owner: OrchestrationActor } }): LoopEntry {
     return this.withLock(() => {
       if (this.entries.size >= MAX_LOOPS) {
         throw new Error(`Maximum of ${MAX_LOOPS} loops reached. Delete some before creating new ones.`);
@@ -280,6 +284,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
           completion: opts.completion,
           completionId: opts.completion ? randomUUID() : undefined,
           completionCwd: opts.completionCwd,
+          adaptiveBudget: opts.adaptiveBudget,
           dynamic: opts.dynamic,
           workflow: opts.workflow,
           actor: opts.actor,
@@ -301,6 +306,24 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
       if (!entry?.completion || JSON.stringify(entry) !== snapshot || Date.now() >= entry.expiresAt
         || (entry.completionReview && Date.now() < entry.completionReview.expiresAt)) return undefined;
       this.applyReducerEvent({ type: "LOOP_COMPLETION_REVIEW", at: Date.now(), source: "tool", payload: { id, review } });
+      return structuredClone(this.entries.get(id));
+    }, result => result !== undefined);
+  }
+
+  updateAdaptiveBudget(id: string, snapshot: string, budget: NonNullable<LoopEntry["adaptiveBudget"]>): LoopEntry | undefined {
+    return this.withLock(() => {
+      const entry = this.entries.get(id);
+      const now = Date.now();
+      if (!entry?.adaptiveBudget || JSON.stringify(entry) !== snapshot || !entry.completionReview
+        || now >= entry.completionReview.expiresAt || now >= entry.expiresAt || atMaxFires(entry)
+        || (entry.status !== "active" && entry.pause?.kind !== "budget_limit")) return undefined;
+      const previous = entry.adaptiveBudget;
+      if (budget.startedAt !== previous.startedAt || budget.revision !== previous.revision + 1
+        || budget.lastReviewedFireCount !== (entry.fireCount ?? 0) || budget.lastReviewedFireCount < previous.lastReviewedFireCount
+        || budget.fireLimit < previous.fireLimit || budget.expiresAt < previous.expiresAt) return undefined;
+      try { validateAdaptiveBudget({ ...entry, adaptiveBudget: budget }); }
+      catch { return undefined; }
+      this.applyReducerEvent({ type: "LOOP_BUDGET_UPDATED", at: now, source: "tool", payload: { id, budget } });
       return structuredClone(this.entries.get(id));
     }, result => result !== undefined);
   }
@@ -354,7 +377,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     return this.withLock(() => {
       const entry = this.entries.get(id);
       if (!entry || Date.now() >= entry.expiresAt || isTerminalWorkflowRun(entry.workflow)) return undefined;
-      if (entry.completion && atMaxFires(entry)) return undefined;
+      if (entry.completion && (atMaxFires(entry) || entry.pause?.kind === "budget_limit")) return undefined;
       if (entry.pause?.kind === "controller_limit"
         && (atMaxFires(entry) || (entry.workflow && atWorkflowStateFireLimit(entry.workflow)))) {
         return undefined;
@@ -551,16 +574,17 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
   continueDynamic(
     id: string,
     fields: { prompt?: string; dynamic: Partial<DynamicLoopState> },
-    expected?: { status: LoopEntry["status"]; iteration: number; updatedAt: number },
+    expected?: { status: LoopEntry["status"]; iteration: number; updatedAt: number; completionSnapshot?: string },
   ): LoopEntry | undefined {
     return this.withLock(() => {
       const entry = this.entries.get(id);
       if (!entry || Date.now() >= entry.expiresAt || entry.trigger.type !== "dynamic" || !entry.dynamic || entry.workflow) return undefined;
-      if (entry.completion && (atMaxFires(entry) || fields.prompt !== undefined || fields.dynamic.goal !== undefined || fields.dynamic.doneCriteria !== undefined)) return undefined;
+      if (entry.completion && (atMaxFires(entry) || operatingBudgetExhausted(entry) || fields.prompt !== undefined || fields.dynamic.goal !== undefined || fields.dynamic.doneCriteria !== undefined)) return undefined;
       if (expected && (
         entry.status !== expected.status
         || entry.dynamic.iteration !== expected.iteration
         || entry.updatedAt !== expected.updatedAt
+        || (expected.completionSnapshot !== undefined && JSON.stringify(entry) !== expected.completionSnapshot)
       )) return undefined;
       const now = Date.now();
       if (now >= entry.expiresAt) return undefined;
@@ -599,7 +623,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
         || entry.updatedAt !== expected.updatedAt) return false;
       if (entry.completion && status === "completed" && (!entry.completionReview || Date.now() >= entry.completionReview.expiresAt
         || JSON.stringify(entry) !== expected.completionSnapshot
-        || (entry.status !== "active" && !(entry.pause?.kind === "controller_limit" && atMaxFires(entry))))) return false;
+        || (entry.status !== "active" && !(entry.pause?.kind === "controller_limit" && atMaxFires(entry)) && !(entry.pause?.kind === "budget_limit" && entry.adaptiveBudget)))) return false;
       const at = Date.now();
       this.applyReducerEvent(status === "completed"
         ? {

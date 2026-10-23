@@ -61,13 +61,13 @@ reservation-only versus observed review phases, NO_COLOR/TERM=dumb and motion
 off. Native renderer/key smoke uses the installed Pi version in an owned PTY;
 it is not a human visual review. Baseline is pinned pre-feature main0506ce5.
 
-## Human evaluation (not yet collected)
+## Human questionnaire measures (not yet collected)
 
 After real use, record participant count/context, per-task success, time,
 errors/assistance and both UMUX-Lite responses. Use the same task instructions
 and starting state for comparisons. Do not fill answers from an assistant,
-script, live-model judge or screenshot heuristic. Until a person responds,
-respondents=0 and satisfaction score=null, not a pass. Add four 1–7 visual
+script, live-model judge or screenshot heuristic. Until a person completes these questionnaire items,
+questionnaire respondents=0 and satisfaction score=null, not a pass. Add four 1–7 visual
 aesthetics ratings guided by VisAWI-S; report their mean only with actual
 complete responses, note the TUI adaptation, and do not infer subscale scores. Any small-sample result
 must retain its sample size and cannot establish general population quality.
@@ -88,9 +88,90 @@ lookup proxies, not a general efficiency percentage or measured human time.
 
 Native TUI startup, goal/tree/criteria rendering, Escape close with responsive
 status inspection, task-menu cancellation and orderly quit were also observed.
-No model, verifier or JEV call was made. Human participants remain zero; UMUX-Lite
-and TUI-adapted visual-aesthetics scores remain null. Bounded results/previews
+No model, verifier or JEV call was made. That controlled renderer/key smoke
+involved no human participants; UMUX-Lite and TUI-adapted visual-aesthetics
+scores remain null. Bounded results/previews
 live under `.artifacts/dashboard/`; actual values must come from each run.
+
+## Readiness recheck (2026-10-21)
+
+A fresh unchanged-source evaluation again passed 27 layout fixtures and all six
+scripted tasks, with logical key counts `[0, 0, 2, 2, 1, 1]`. Its 2,700 render
+samples observed p95 0.684162 ms, below the stated 16 ms engineering budget.
+This is synthetic component evidence, not a human efficiency claim.
+
+A separate real-host scoped setup was observed to create its controller after
+one recorded native approval in 23.911 seconds of total request wall time.
+That value includes system/reading/response time and is not controlled human
+time-on-task. Raw key/pointer counts and operator-reported blocking errors
+remain unknown because the feedback question was unanswered. Human survey
+respondents remain zero, and satisfaction/aesthetics scores remain null.
+The separately requested live completion fixture stayed unapproved, with zero
+verification and JEV calls; neither that hold nor the setup receipt is a
+positive end-to-end completion result.
+
+## Current scoped-run observation
+
+A later operator-created run received one native approval and created its
+controller in 49.424 seconds of request wall time, with no returned setup
+runtime error. This establishes at least one logical affirmative selection,
+not the total number of key, pointer or scroll actions. Its feedback question
+was unanswered; perceived difficulty and human ratings remain unknown. Do not
+infer a satisfaction score or a general human efficiency benefit from it.
+
+The unchanged dashboard evaluation passed the same 27 layouts and six scripted
+tasks with logical keys `[0, 0, 2, 2, 1, 1]`. In 2,700 render samples, p95 was
+0.640706 ms against the 16 ms engineering budget. These remain synthetic
+component measures and are not retroactively labelled as human inputs. A
+live goal-completion attempt must separately record actual verification,
+advice and guarded closure outcomes; preparing that attempt is not a pass.
+
+## Complete fixed-task metrics and current native views
+
+The fixed-task report previously recorded success and logical keys but omitted
+per-task elapsed time, attempts, approval requests and errors. New expectations
+first failed with `Each fixed task must report measured elapsed time`, while
+the six existing task controls passed. The evaluator now measures each task
+from its ready fixture, retains explicit zero approval/error counts for these
+read-only intents, and independently asserts no controller mutation.
+
+One bounded run recorded the following **scripted component** values, not human
+execution times or satisfaction:
+
+| Task | Elapsed ms | Logical keys | Attempts | Approvals | Blocking errors |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Selected status/budget | 0.836400 | 0 | 1 | 0 | 0 |
+| Selected criteria | 0.812788 | 0 | 1 | 0 | 0 |
+| Select third goal | 2.332342 | 2 | 1 | 0 | 0 |
+| Scroll detail | 1.218627 | 2 | 1 | 0 | 0 |
+| Prepare start intent | 0.432581 | 1 | 1 | 0 | 0 |
+| Request cancel intent | 0.418122 | 1 | 1 | 0 | 0 |
+
+All six succeeded; 27 layout fixtures and 2,700 renders passed with p95
+0.666904 ms. These zero approvals concern read-only intents, not automatic
+consent. A separate actual operator setup succeeded once after one scoped
+native approval and one observed semantic approval decision in 352.882 seconds
+of request wall time, with no returned setup runtime error. Physical key,
+pointer and scroll totals and subjective ratings remain unmeasured.
+
+A fresh current four-criterion approval probe used Pi 1.3.0 / Bun 1.4.3 in
+fullscreen and regular PTYs at 90×45, 100×30, 48×16 and 160×60. All eight
+captures showed heading, positive countdown and both choices; keyboard Escape
+at about 3.716 seconds closed both sessions with zero controller, verifier,
+advisory, model or network effects. Inputs were controlled negative test
+inputs, not human visual acceptance or affirmative approval. In the actual
+approved goal, fixed verification then real aggregate/focused JEV assessments
+returned unmet and continued the same controller instead of claiming success.
+That is observed negative gating, not a positive completed end-to-end result.
+
+For the current actual operator setup task, one operator subsequently reported
+that the content and choices were readable and that one keyboard selection
+followed by one Enter completed approval, with no display/input problem.
+These are two operator-reported approval key actions, not intercepted raw-input
+telemetry or an inferred scroll count. Together with the runtime's one success,
+one scoped approval, 352.882-second operation wall time and zero returned setup
+errors, this is one bounded task observation (n=1). It is not an efficiency
+comparison, population result, UMUX-Lite score or aesthetics rating.
 
 ## Evidence
 

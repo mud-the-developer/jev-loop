@@ -90,14 +90,27 @@ describe.skipIf(process.platform === "win32")("opt-in JEV loop public-tool accep
     await h.complete({ completionEvidence }); expect(h.store.get("1")).toEqual(before); expect(h.exec).not.toHaveBeenCalled();
   });
 
-  it.each(["unmet", "unknown"])("holds %s without stopping or scheduling and does not repeat approval within scope", async choice => {
-    const h = fixture(); await h.create(); const before = structuredClone(h.store.get("1"));
-    h.executeTool.mockResolvedValue(outcome(recommendation(choice)));
-    const result = await h.complete(); expect(text(result)).toContain(choice); expect(h.store.get("1")).toEqual(before);
-    expect(h.trigger.add).toHaveBeenCalledTimes(1);
+  it("diagnoses unmet and schedules bounded rework without repeating approval", async () => {
+    const h = fixture(); await h.create(); const before = structuredClone(h.store.get("1")!);
+    h.executeTool.mockResolvedValue(outcome(recommendation("unmet")));
+    const result = await h.complete(); expect(text(result)).toContain("unmet");
+    expect(h.store.get("1")).toMatchObject({ status: "active", completion: before.completion, expiresAt: before.expiresAt, maxFires: before.maxFires, fireCount: before.fireCount });
+    expect(h.store.get("1")?.dynamic?.iteration).toBe(1);
+    expect(h.store.get("1")?.dynamic?.state).toMatch(/criterion 1.*[\s\S]*criterion 2/i);
+    expect(h.executeTool).toHaveBeenCalledTimes(3); expect(h.trigger.add).toHaveBeenCalledTimes(2);
     h.executeTool.mockResolvedValue(outcome(recommendation()));
     await h.complete({ completionEvidence: "Additional checks now support every criterion." });
     expect(h.confirm).toHaveBeenCalledTimes(1); expect(h.store.list()).toEqual([]);
+  });
+
+  it("rejects a legacy unknown reply without reclassifying it as permission to continue", async () => {
+    const h = fixture(); await h.create(); const before = structuredClone(h.store.get("1"));
+    const legacy = { ...recommendation(), option: { id: "unknown", title: "Insufficient evidence", description: "Evidence is missing." },
+      reply: { ...recommendation().reply, choice: "unknown", probabilities: { met: 0.1, unmet: 0.1, unknown: 0.8 } } };
+    h.executeTool.mockResolvedValueOnce(outcome(legacy));
+    expect(text(await h.complete())).toMatch(/held|malformed/);
+    expect(h.store.get("1")).toEqual(before); expect(h.trigger.add).toHaveBeenCalledTimes(1);
+    expect(h.executeTool).toHaveBeenCalledTimes(1);
   });
 
   it("cancelled verification cannot complete even with met advice; retry requires fresh approval", async () => {

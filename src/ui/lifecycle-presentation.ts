@@ -19,7 +19,7 @@ const STORAGE_LABELS = {
 
 export function canResumeFromInspection(entry: LoopEntry, now = Date.now()): boolean {
   if (entry.status !== "paused" || now >= entry.expiresAt || entry.orchestration || isTerminalWorkflowRun(entry.workflow)
-    || (entry.completion && atMaxFires(entry))) return false;
+    || entry.pause?.kind === "budget_limit" || (entry.completion && atMaxFires(entry))) return false;
   return !(entry.pause?.kind === "controller_limit"
     && (atMaxFires(entry) || Boolean(entry.workflow && atWorkflowStateFireLimit(entry.workflow))));
 }
@@ -46,6 +46,7 @@ function nextAction(entry: LoopEntry, now: number): string {
   if (entry.completion && atMaxFires(entry)) return entry.pause?.kind === "controller_limit"
     ? "Fire cap exhausted: no continue/resume. Submit final LoopUpdate completed with English completionEvidence before expiry, or explicitly cancel; the cap is not success."
     : "Fire cap exhausted and administratively paused: no continue/resume or automatic completion. Inspect retained work; replace only with explicit approval.";
+  if (entry.pause?.kind === "budget_limit") return "Operating allocation reached: use LoopUpdate with separate English budgetEvidence for an in-envelope JEV review; no generic resume or hard-budget renewal.";
   if (isTerminalWorkflowRun(entry.workflow)) return "Inspect the terminal outcome; do not resume.";
   if (entry.status === "paused") {
     if (!canResumeFromInspection(entry, now)) {
@@ -90,6 +91,13 @@ export function formatLoopLifecycle(entry: LoopEntry, context: LifecycleInspecti
     `Next fire: ${nextFire}`,
     `Fires: ${entry.fireCount ?? 0}/${entry.maxFires ?? "unbounded"} (accounted, not delivered wakes)`,
   ];
+  if (entry.adaptiveBudget) {
+    const budget = entry.adaptiveBudget;
+    lines.push(`Operating allocation: ${entry.fireCount ?? 0}/${budget.fireLimit} fires · until ${new Date(budget.expiresAt).toISOString()}`,
+      `Hard envelope: ${entry.maxFires} total fires · until ${new Date(entry.expiresAt).toISOString()} · original start ${new Date(budget.startedAt).toISOString()}`,
+      `Budget range lower bounds: ${entry.completion!.budgetRange!.minFires} fires / ${entry.completion!.budgetRange!.minExpiresIn}`,
+      `Stored allocation revision ${budget.revision}, assessed fire ${budget.lastReviewedFireCount}; not restored execution authority.`);
+  }
   if (entry.trigger.type === "hybrid") {
     lines.push(`Hybrid event: ${entry.trigger.event.source} · debounce: ${entry.trigger.debounceMs}ms`);
   }

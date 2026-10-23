@@ -15,7 +15,7 @@ export type LoopExpiryDisposition = "deleted" | "paused";
 export type LoopExpiryReason = "expires_at" | "resume_event_stale";
 export type LoopExpirySource = "scheduler" | "session_recovery" | "monitor";
 
-export type LoopPauseKind = "administrative" | "controller_limit" | "semantic_terminal" | "orchestration_settlement";
+export type LoopPauseKind = "administrative" | "controller_limit" | "budget_limit" | "semantic_terminal" | "orchestration_settlement";
 
 export interface LoopPauseRecord {
   kind: LoopPauseKind;
@@ -48,6 +48,15 @@ export interface DynamicTrigger {
 }
 
 export type Trigger = CronTrigger | EventTrigger | HybridTrigger | DynamicTrigger;
+
+export interface AdaptiveBudgetState {
+  startedAt: number;
+  fireLimit: number;
+  expiresAt: number;
+  revision: number;
+  lastReviewedFireCount: number;
+  evidenceHash?: string;
+}
 
 export interface DynamicLoopState {
   goal: string;
@@ -342,6 +351,7 @@ export interface LoopEntry {
   completionCwd?: string;
   completionVersion?: number;
   completionReview?: { id: string; expiresAt: number };
+  adaptiveBudget?: AdaptiveBudgetState;
 }
 
 export type WorkflowMonitorSettlement =

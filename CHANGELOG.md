@@ -1,10 +1,22 @@
 # Changelog
 
-## Unreleased
+## [0.1.0](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.0) (2026-10-23)
+
+### Features
+
+* **release:** distribute the first jev-loop GitHub release with a built package, SHA-256 checksums and pinned installation instructions. Keep npm publication disabled and preserve upstream MIT attribution and history.
+* **jev:** add opt-in once-approved finite budget ranges, initial and per-fire JEV operating allocations, immutable cumulative hard limits and explicit budget checkpoints. Preserve fixed loops, fresh restart authority, full-snapshot/lease fencing, privacy and permission hooks; start adaptive execution lifetime at actual approval.
 
 ### Bug Fixes
-
+* **jev:** use met/unmet only, diagnose missing criterion support, and continue authorized work in the same goal instead of pausing for uncertainty. Preserve full evidence context, snapshot ownership, evidence novelty, expiry/fire limits and all permission/error boundaries.
+* **jev:** remove the separate 120-second initial-approval and completion-review caps by explicit operator request. Keep loop expiry/cancellation, fire limits and the 30-second verifier bound; retain review fencing through expiry and safely handle long timer delays.
+* **jev:** announce and release host attention around TUI setup approval using the existing Herdr wait protocol, so model-tool approval is distinguished from ordinary work. Signals carry no setup details and never grant consent; RPC, deadlines and permission checks remain unchanged.
+* **jev:** keep exact approval details scrollable with fixed choices/countdown in small terminals, default to No, and retain keyboard/mouse consent, RPC confirmation and existing bounds. Distinguish timeout, expiry and cancellation without granting retries or weakening the existing review/dashboard guards.
 * **tasks:** register the native task tools at `session_start` instead of six seconds after startup. A prompt sent inside that window used to go out with the pre-registration tool set, and the next request carried four more tools plus their prompt guidelines, so the request prefix changed once per session and every provider-side prompt cache missed (a full ~22k-token re-prefill on llama-server). The timer stays as a backstop and an external `pi-tasks` that answered the startup ping still wins.
+
+## Upstream pi-loop history
+
+The releases below belong to the upstream project, not jev-loop.
 
 ## [0.7.18](https://github.com/trvon/pi-loop/compare/pi-loop-v0.7.17...pi-loop-v0.7.18) (2026-10-14)
 

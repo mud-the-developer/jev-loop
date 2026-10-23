@@ -95,6 +95,7 @@ let approvalRequests = 0;
 let approvals = 0;
 let declined = false;
 let jevCalls = 0;
+const seenAssessments = new Set();
 let observed;
 const verificationCodes = [];
 const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
@@ -108,13 +109,17 @@ const resourceLoader = new DefaultResourceLoader({
     });
     registerJevLoopCommand({ pi, getStore: () => store, getGeneration: () => 0, isContextCurrent: () => !controller.signal.aborted,
       cancelLoop: runtime.cancelLoop, getStorageScope: () => "memory", getNextFire: () => undefined });
-    pi.registerTool({ name: "jev_decide", label: "Operator JEV bridge", description: "Relay one fixed English fixture to the existing public JEV tool; no backend credentials here.", parameters: Type.Object({}),
+    pi.registerTool({ name: "jev_decide", label: "Operator JEV bridge", description: "Relay the fixed binary assessment and, if unmet, its single-criterion diagnosis to the public JEV tool; no credentials here.", parameters: Type.Object({}),
       async execute(_id, args, signal) {
-        assert.equal(++jevCalls, 1, "No duplicate JEV call or automatic retry");
+        // This fixed policy has one criterion: aggregate plus at most one diagnosis.
+        assert(++jevCalls <= 2, "No extra assessment or automatic retry");
         const serialized = JSON.stringify(args);
+        assert(!seenAssessments.has(serialized), "No duplicate assessment or automatic retry");
+        seenAssessments.add(serialized);
         assert(!serialized.includes(cwd) && !serialized.includes(userGoal) && !serialized.includes(process.execPath));
-        observed = await request("jev_decision_request", { arguments: args }, signal);
-        return { content: [{ type: "text", text: JSON.stringify(observed) }], details: observed };
+        const decision = await request("jev_decision_request", { arguments: args }, signal);
+        if (jevCalls === 1) observed = decision;
+        return { content: [{ type: "text", text: JSON.stringify(decision) }], details: decision };
       },
     });
     pi.registerTool({ name: "FixtureWork", label: "Fixed fixture work", description: "Create only the readiness marker inside this owned temporary fixture.", parameters: Type.Object({}),

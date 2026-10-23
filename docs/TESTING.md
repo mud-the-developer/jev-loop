@@ -58,13 +58,16 @@ Its JSONL client must continuously read LF-delimited stdout and keep stdin
 open. Responses use only the current live request ID; wrong/stale IDs abort the
 run. Incoming buffered JSONL is limited to 32 KiB of UTF-8, not JavaScript
 character count. Abort clears the buffer and stops accepting further input.
-The fixture is bounded to three minutes and one JEV request, not retries.
+The fixture is bounded to three minutes and one aggregate JEV assessment plus
+at most one focused diagnosis for its single criterion. Identical assessments
+are not retried; a focused diagnosis is not a second aggregate review.
 
 1. Relay each `extension_ui_request` with method `confirm` to the actual human,
    showing its full title/message. Return `extension_ui_response` with that
    human's fresh choice, or cancellation. Never synthesize approval, reuse an
    old choice, or forward this UI payload to JEV: it contains local command
-   argv and cwd. Native approval itself retains the runtime's shorter timeout.
+   argv and cwd. The fixture's three-minute overall bound remains authoritative
+   even though the runtime itself now waits until loop expiry or cancellation.
 2. The human-approved fixture first fails its fixed check, persists rework,
    writes only its own temporary readiness marker, then reruns the same check.
    It must not request another setup approval for this ordinary repair.
@@ -75,7 +78,7 @@ The fixture is bounded to three minutes and one JEV request, not retries.
    A tool failure stops the run instead of retrying or changing providers.
 4. A passing `operator_result` requires one granted setup, actual verification
    exits `[7,0]`, one real `met` recommendation, and deletion through the locked
-   completion path. Missing/declined approval, unknown advice, and failures are
+   completion path. Missing/declined approval, unmet advice, and failures are
    not passes. Cleanup drains local review and removes the temporary fixture;
    remote model-service quiescence is not inferred.
 
@@ -87,11 +90,34 @@ canceled/expired; no JEV request was relayed. No live model/terminal acceptance
 is established by that attempt. Preserve bounded result metadata outside
 committed fixtures, not transcripts or secrets.
 
+A 2026-10-21 recheck also ended `held`: one approval request, zero granted
+approvals, no verification exits and no JEV calls. It was not retried. A separate
+real-host goal setup did receive one native approval and create its controller
+in 23.911 seconds of request wall time; that setup receipt does not establish
+an approved verification/advice/completion result. Raw key/pointer actions and
+operator-reported blocking errors were not collected, and the usability
+question was unanswered. These gaps must remain explicit rather than being
+filled from scripted UI proxies. The canonical suite was separately rerun with
+1,599 passing tests and three existing Windows-only skips; this was not a
+parent goal completion review.
+
+An operator-approved production goal can also exercise its own normal live
+verification/advice/finalization path. Submit completion only through that
+same goal's `LoopUpdate`, with its unchanged approved verifier and candid
+English evidence; never borrow consent from a different fixture. A completion
+request is not a passing trace. Record a positive run only after the actual
+fixed verification, real supported JEV recommendation and guarded controller
+closure return successfully. If advice is unmet, malformed or closure fails,
+retain that outcome instead. This does not turn the held readiness-repair
+fixture into a pass or substitute scripted UX for missing human observations.
+
 ## Offline UX quality checks
 
 `npm run test:e2e:dashboard` produces bounded synthetic component performance,
 width/height/goal-count checks and six keyboard-intent task proxies under ignored
-`.artifacts/dashboard/`. It does not collect human time or satisfaction. See
+`.artifacts/dashboard/`. Every fixed task also records measured component
+elapsed time, attempts, logical keys and approval/error counts, and asserts
+state preservation. It does not collect human time or satisfaction. See
 [DASHBOARD_EVALUATION.md](./DASHBOARD_EVALUATION.md) for ISO/UMUX-Lite/visual
 review sources, baseline limits and unscored human measures.
 
@@ -140,11 +166,61 @@ cancellable with a policy-specific hold; excessive actual evidence does not
 change a valid controller. Tests preserve all criteria and never raise the
 public context limit or send sizing placeholders to JEV.
 
-Direct live public-tool conformance separately observed `jev-1.13.0` classify
-three distinct fixtures as `met`, `unmet`, `unknown`; actual responses passed
-`readCompletionAdvice`. It does not establish native-approved auto-completion,
+Historical three-way public-tool conformance observed `jev-1.13.0` classify
+three fixtures as `met`, `unmet`, `unknown`; responses passed the then-current
+`readCompletionAdvice`. This is not a live binary/diagnosis pass; the new
+parser rejects legacy unknown rather than coercing it into continuation. It does not establish native-approved auto-completion,
 physical TUI usability or general model quality. Bounded local response/model/
 usage metadata is ignored under `.artifacts/verification/`, not a transcript.
+
+## Binary completion diagnosis and rework
+
+`test/jev-completion-rework.test.ts` covers the two completion outcomes,
+missing-evidence classification, focused criterion diagnosis while preserving
+all context, automatic same-goal continuation, evidence novelty, verifier
+failure without speculative advice, inconsistent aggregate/criterion results,
+final fire caps, provider errors, expiry, file-backed peers, same-time ABA and
+post-write failures. `test/jev-loop-runtime.test.ts` additionally runs real
+index/session/scheduler wiring: diagnosed work is buffered while busy, re-wakes
+at idle, and cannot reuse unchanged evidence merely because a wake or interval
+update changed a control version. Focus indices and the maximum eight-criterion policy are
+also checked without dropping criteria or expanding the 4,000-character bound.
+
+The real SDK suite includes an aggregate unmet followed by focused diagnoses,
+progress and later met, plus permission refusal on a focused nested call.
+Parents, UI and advice are synthetic: this proves routing/permission behavior,
+not actual model diagnostic accuracy. Generated continuation-snapshot property
+coverage complements the deterministic same-millisecond regression. Legacy
+unknown replies are rejected as malformed rather than used as continuation
+or execution authority. Current provider conformance must be measured anew;
+historical three-way observations are not a binary-policy pass.
+
+## Adaptive range-budget checks
+
+`test/jev-adaptive-budget.test.ts` covers the initial range grant/selection,
+execution lifetime anchored after consent, per-fire renewal, same-fire skip,
+privacy, invalid ranges/replies, provider failure, soft checkpoint re-review,
+hard fire/expiry limits, administrative pause, restart with fresh range
+approval, file-backed peer mutation and deterministic sole allocations.
+An initial slice that elapses during selection must park without a work wake;
+its behavioral red was preserved before the creation guard was repaired.
+
+`test/property/adaptive-budget.property.test.ts` generates bounded unique tiers
+and leased allocation changes, rejecting start resets, overflow, stale CAS and
+administrative-pause renewals while preserving hard totals. The SDK suite
+observes every budget comparison through nested permission hooks, including
+refusal before controller creation. Real index/session/scheduler wiring proves
+one initial grant, four initial comparisons, four renewal comparisons and an
+idle re-wake of the same controller, followed by met-only completion without
+another budget request. Advice/parent/UI are controlled fixtures, not actual
+provider accuracy or operator execution consent.
+
+The established function threshold remains **96%**. Meaningful wheel routing,
+scroll preservation and inner/outer invalidation tests cover the earlier UI
+lifecycle gap rather than lowering that threshold. The completed source gate
+passed 1,651 tests (three Windows-only skips), 36 property tests, package smoke
+with 83 files, and function coverage 96.08%; audit found zero vulnerabilities.
+Native adaptive execution still needs its own exact approval after activation.
 
 ## Monitor completion readiness
 

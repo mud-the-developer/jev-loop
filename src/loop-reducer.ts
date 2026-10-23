@@ -1,3 +1,4 @@
+import { operatingBudgetExhausted, validateAdaptiveBudget } from "./adaptive-budget.js";
 import { applyOrchestrationEvent, createOrchestrationState, type OrchestrationEvent } from "./orchestration-reducer.js";
 import type { DynamicLoopState, LoopEntry, LoopFireOrigin, LoopPauseKind, OrchestrationActor, OrchestrationDefinitionInput, Trigger, WorkflowAdmissionRecord, WorkflowDefinition, WorkflowMonitorWait, WorkflowRevisionChange, WorkflowRuntimeActor } from "./types.js";
 import { createWorkflowRun, transitionWorkflowRun } from "./workflow-reducer.js";
@@ -28,6 +29,12 @@ export type LoopReducerEvent =
     payload: { id: string; review?: LoopEntry["completionReview"] };
   }
   | {
+    type: "LOOP_BUDGET_UPDATED";
+    at: number;
+    source: ReducerSource;
+    payload: { id: string; budget: NonNullable<LoopEntry["adaptiveBudget"]> };
+  }
+  | {
     type: "LOOP_CREATED";
     at: number;
     source: ReducerSource;
@@ -44,6 +51,7 @@ export type LoopReducerEvent =
       completion?: LoopEntry["completion"];
       completionId?: string;
       completionCwd?: string;
+      adaptiveBudget?: LoopEntry["adaptiveBudget"];
       dynamic?: Partial<DynamicLoopState>;
       workflow?: WorkflowDefinition;
       actor?: WorkflowRuntimeActor;
@@ -234,6 +242,7 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
         completionCwd: event.payload.completionCwd,
         completionVersion: 0,
       } : {}),
+      ...(event.payload.adaptiveBudget ? { adaptiveBudget: structuredClone(event.payload.adaptiveBudget) } : {}),
       dynamic: event.payload.trigger.type === "dynamic" || event.payload.dynamic
         ? {
             goal: event.payload.dynamic?.goal ?? event.payload.prompt,
@@ -251,6 +260,11 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
         ? createOrchestrationState(event.payload.orchestration.definition, event.payload.orchestration.owner, event.at)
         : undefined,
     };
+    validateAdaptiveBudget(loop);
+    if (operatingBudgetExhausted(loop, event.at)) {
+      loop.status = "paused";
+      loop.pause = { kind: "budget_limit", at: event.at, reason: "Initial operating allocation elapsed before activation" };
+    }
     next.loopsById[id] = loop;
     return {
       state: next,
@@ -262,7 +276,19 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
   const current = state.loopsById[id];
   if (!current) return { state, effects: [] };
 
-  if (current.completion && event.type === "LOOP_RESUMED" && atMaxFires(current)) return { state, effects: [] };
+  if (event.type === "LOOP_BUDGET_UPDATED") {
+    const budget = event.payload.budget;
+    const previous = current.adaptiveBudget;
+    if (!previous || !current.completion || atMaxFires(current) || event.at >= current.expiresAt
+      || (current.status !== "active" && current.pause?.kind !== "budget_limit")
+      || budget.startedAt !== previous.startedAt || budget.revision !== previous.revision + 1
+      || budget.lastReviewedFireCount !== (current.fireCount ?? 0)
+      || budget.lastReviewedFireCount < previous.lastReviewedFireCount
+      || budget.fireLimit < previous.fireLimit || budget.expiresAt < previous.expiresAt) return { state, effects: [] };
+    try { validateAdaptiveBudget({ ...current, adaptiveBudget: budget }); }
+    catch { return { state, effects: [] }; }
+  }
+  if (current.completion && event.type === "LOOP_RESUMED" && (atMaxFires(current) || current.pause?.kind === "budget_limit")) return { state, effects: [] };
   if (current.completion && event.type === "LOOP_DYNAMIC_UPDATED"
     && (event.payload.prompt !== undefined || event.payload.dynamic.goal !== undefined || event.payload.dynamic.doneCriteria !== undefined)) return { state, effects: [] };
   if (current.completion && event.type === "LOOP_FIRED" && (current.status !== "active" || atMaxFires(current) || event.at >= current.expiresAt)) return { state, effects: [] };
@@ -322,6 +348,18 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
       };
     }
     loop.updatedAt = event.at;
+  }
+
+  if (event.type === "LOOP_BUDGET_UPDATED") {
+    loop.adaptiveBudget = structuredClone(event.payload.budget);
+    loop.updatedAt = event.at;
+    if (operatingBudgetExhausted(loop, event.at)) {
+      loop.status = "paused";
+      loop.pause = { kind: "budget_limit", at: event.at, reason: "JEV retained an exhausted operating allocation inside the hard envelope" };
+    } else if (current.pause?.kind === "budget_limit") {
+      loop.status = "active";
+      loop.pause = undefined;
+    }
   }
 
   if (event.type === "LOOP_DYNAMIC_UPDATED") {
