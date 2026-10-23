@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+* **monitors:** drain processes already stopping when shutdown begins, including shutdown called from a stop notification. Publish pending reaping before callbacks, preserving the original bounded cleanup and suppressing late notifications across teardown.
 * **inspection:** present retained past-deadline controllers as expired, exclude them from active counts and future-fire/action guidance, and preserve all stored state. Expired workflow summaries no longer recommend claims, resume or transitions.
 
 ## [0.1.1](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.1) (2026-10-23)

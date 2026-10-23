@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import extension from "../src/index.js";
+import { MonitorManager } from "../src/monitor-manager.js";
 import { TASKS_RPC } from "../src/rpc/channels.js";
 import { resolveLoopStorePath, resolveTaskStorePath } from "../src/runtime/scope.js";
 import { CronScheduler } from "../src/scheduler.js";
@@ -2663,6 +2664,7 @@ describe("LoopDelete tool wrapper", () => {
 });
 
 describe("monitor tool wrappers", () => {
+  const managers = new Set<MonitorManager>();
   let cwd: string;
   let originalCwd: string;
   let originalScope: string | undefined;
@@ -2673,9 +2675,18 @@ describe("monitor tool wrappers", () => {
     originalScope = process.env.PI_LOOP_SCOPE;
     cwd = mkdtempSync(join(tmpdir(), "pi-loop-mon-"));
     process.chdir(cwd);
+    const create = MonitorManager.prototype.create;
+    vi.spyOn(MonitorManager.prototype, "create").mockImplementation(function (this: MonitorManager, ...args) {
+      managers.add(this); return create.apply(this, args);
+    });
   });
 
   afterEach(async () => {
+    // Windows keeps a child cwd locked until its owned process has reaped.
+    const shutdown = Promise.all([...managers].map(manager => manager.shutdown()));
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(5000);
+    await shutdown;
+    managers.clear(); vi.restoreAllMocks();
     process.chdir(originalCwd);
     if (originalScope === undefined) delete process.env.PI_LOOP_SCOPE;
     else process.env.PI_LOOP_SCOPE = originalScope;

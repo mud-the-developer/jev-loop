@@ -175,6 +175,21 @@ describe("MonitorManager", () => {
     await manager.shutdown();
   });
 
+  it.each(["after-stop", "during-finished-event"])("shutdown waits for an already stopping process (%s)", async boundary => {
+    vi.useFakeTimers(); const child = createMockChildProcess({ exitCode: null });
+    manager = new MonitorManager(pi, createSequentialSpawn(child)); const entry = manager.create("sleep 30", "pending cleanup", 0);
+    let shutdown: Promise<void> | undefined; let settled = false;
+    if (boundary === "during-finished-event") pi.events.on("monitor:finished", () => { shutdown = manager.shutdown(); void shutdown.then(() => { settled = true; }); });
+    const stopping = manager.stop(entry.id, "timeout");
+    if (!shutdown) { shutdown = manager.shutdown(); void shutdown.then(() => { settled = true; }); }
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false); expect(manager.get(entry.id)?.status).toBe("stopped");
+      child.emit("close", 0); await stopping; await shutdown;
+      expect(settled).toBe(true); expect(manager.list()).toEqual([]);
+    } finally { child.emit("close", 0); await stopping; await shutdown; vi.useRealTimers(); }
+  });
+
   it("accepts new monitors after a session handoff", async () => {
     vi.useFakeTimers();
     const first = createMockChildProcess({ exitCode: null });
