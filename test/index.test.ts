@@ -2923,19 +2923,17 @@ describe("monitor tool wrappers", () => {
       workflowId,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    for (const handler of extensionHandlers.get("agent_end") ?? []) {
-      await handler(null, createCtx());
-    }
-    await flushAsync();
-
-    expect(emittedEvents).toContainEqual(expect.objectContaining({
+    await vi.waitFor(() => expect(emittedEvents).toContainEqual(expect.objectContaining({
       name: "loop:fire",
       payload: expect.objectContaining({
         loopId: workflowId,
         monitorOutcome: expect.objectContaining({ monitorId: "1", status: "stopped", stopReason: "timeout" }),
       }),
-    }));
+    })), { timeout: 7000 });
+    for (const handler of extensionHandlers.get("agent_end") ?? []) {
+      await handler(null, createCtx());
+    }
+    await flushAsync();
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain(
       "Monitor #1 outcome: status=stopped; exitCode=unavailable; stopReason=timeout; outputLines=0.",
@@ -3239,12 +3237,14 @@ describe("monitor tool wrappers", () => {
       timeout: 50,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    expect(sentCustomMessages).toHaveLength(1);
+    // Terminal notifications follow process-tree cleanup, not a fixed OS delay.
+    await vi.waitFor(() => expect(sentCustomMessages).toHaveLength(1), { timeout: 7000 });
     expect((sentCustomMessages[0].message as { content: string }).content).toContain(
       "Monitor #1 became stale",
     );
+    expect((sentCustomMessages[0].message as { content: string }).content).toContain("status=stopped");
+    expect((sentCustomMessages[0].message as { content: string }).content).toContain("stopReason=timeout");
+    await flushAsync(); expect(sentCustomMessages).toHaveLength(1);
   }, 10000);
 
   it("does not deliver monitor completion wake if the completion loop is deleted", async () => {
