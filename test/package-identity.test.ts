@@ -11,7 +11,7 @@ describe("standalone jev-loop GitHub release", () => {
   it("has its own released package identity while retaining the npm publication guard", () => {
     const manifest = json("../package.json");
     expect(manifest.name).toBe("jev-loop");
-    expect(manifest.version).toBe("0.1.0");
+    expect(manifest.version).toBe("0.1.1");
     expect(manifest.private).toBe(true);
     expect(manifest.repository.url).toBe("https://github.com/mud-the-developer/jev-loop.git");
   });
@@ -28,9 +28,10 @@ describe("standalone jev-loop GitHub release", () => {
 
   it("documents a pinned release artifact, checksum validation and tagged source installation", () => {
     const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-    expect(readme).toContain("releases/download/v0.1.0/jev-loop-0.1.0.tgz");
+    expect(readme).toContain("releases/download/v0.1.1/jev-loop-0.1.1.tgz");
     expect(readme).toContain("sha256sum -c SHA256SUMS");
-    expect(readme).toContain("--branch v0.1.0");
+    expect(readme).toContain("--branch v0.1.1");
+    expect(readme).toContain("blob/v0.1.1/AGENTS.md");
     expect(readme).not.toContain("source-only and private");
   });
 

@@ -583,27 +583,28 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
         }
         if (params.status === "completed") {
           const result = await completionRuntime.review(structuredClone(entry), params.completionEvidence, ctx, signal);
+          const withReceipt = (output: ReturnType<typeof textResult>) => result.receipt ? { ...output, details: { ...output.details, completionReview: result.receipt } } : output;
           if (result.completed) { triggerSystem.remove(entry.id); updateWidget(); }
           if (result.reworkScope && !atMaxFires(entry)) {
             result.reworkScope();
-            if (store !== getStore() || generation !== options.getGeneration?.()) return reject("Session/store changed before rework; inspect LoopList in the current session.");
+            if (store !== getStore() || generation !== options.getGeneration?.()) return withReceipt(reject("Session/store changed before rework; inspect LoopList in the current session."));
             if (entry.adaptiveBudget) {
-              const budget = await completionRuntime.adjustBudget(structuredClone(entry), params.budgetEvidence ?? params.completionEvidence, ctx, signal);
-              if (!budget.entry) return reject(`${result.message}\n${budget.message}`);
+              const budget = await completionRuntime.adjustBudget(structuredClone(entry), params.budgetEvidence, ctx, signal);
+              if (!budget.entry) return withReceipt(reject(`${result.message}\n${budget.message}`));
               budget.check?.();
-              if (store !== getStore() || generation !== options.getGeneration?.()) return reject("Context changed after adaptive rework selection; inspect current state.");
+              if (store !== getStore() || generation !== options.getGeneration?.()) return withReceipt(reject("Context changed after adaptive rework selection; inspect current state."));
               entry = budget.entry;
               if (entry.status !== "active") {
                 triggerSystem.remove(entry.id); updateWidget();
-                return textResult(`${result.message}\n${budget.message}`, { kind: "loop", action: "update", tone: "warning", summary: "Operating budget checkpoint", expanded: [result.message, budget.message] });
+                return withReceipt(textResult(`${result.message}\n${budget.message}`, { kind: "loop", action: "update", tone: "warning", summary: "Operating budget checkpoint", expanded: [result.message, budget.message] }));
               }
             }
             const continued = continueDynamicLoop({ id: entry.id, status: "continue", state: result.message, metrics: params.metrics ?? entry.dynamic?.metrics }, entry as LoopEntry & { dynamic: NonNullable<LoopEntry["dynamic"]> }, store, triggerSystem);
-            if (!continued.applied) return reject(`${result.message}\n${continued.message}`);
+            if (!continued.applied) return withReceipt(reject(`${result.message}\n${continued.message}`));
             updateWidget();
-            return textResult(`${result.message}\n${continued.message}`, { kind: "loop", action: "update", tone: "warning", summary: "Evidence diagnosed; goal continued", expanded: [result.message, continued.message] });
+            return withReceipt(textResult(`${result.message}\n${continued.message}`, { kind: "loop", action: "update", tone: "warning", summary: "Evidence diagnosed; goal continued", expanded: [result.message, continued.message] }));
           }
-          const output = textResult(result.message, { kind: "loop", action: "update", tone: result.completed ? "success" : "warning", summary: result.completed ? "Verified completion" : "Completion held", expanded: [result.message] });
+          const output = withReceipt(textResult(result.message, { kind: "loop", action: "update", tone: result.completed ? "success" : "warning", summary: result.completed ? "Verified completion" : "Completion held", expanded: [result.message] }));
           return "askUser" in result && result.askUser ? { ...output, details: { ...output.details, askUser: result.askUser } } : output;
         }
       }

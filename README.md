@@ -3,7 +3,7 @@
 <h6 align="center">JEV-assisted completion on top of durable Pi loops, workflows, tasks, and monitoring.</h6>
 </p>
 
-An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.0`, distributed through [GitHub releases](https://github.com/mud-the-developer/jev-loop/releases). The npm `private` guard remains enabled: this is not an npm publication. Releases are manual; the CHANGELOG separates jev-loop releases from inherited upstream history.
+An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.1`, distributed through [GitHub releases](https://github.com/mud-the-developer/jev-loop/releases). The npm `private` guard remains enabled: this is not an npm publication. Releases are manual; the CHANGELOG separates jev-loop releases from inherited upstream history.
 
 This project focuses on English-only JEV inputs, minimal repeated approval within an authorized scope, and evidence-gated automatic completion. The inherited execution core is retained rather than rewritten.
 
@@ -14,13 +14,13 @@ validate the built package, then keep the extracted directory in a permanent
 location because Pi registers its local path:
 
 ```bash
-install_dir="$HOME/.local/share/pi-extensions/jev-loop-0.1.0"
+install_dir="$HOME/.local/share/pi-extensions/jev-loop-0.1.1"
 mkdir -p "$install_dir"
 cd "$install_dir"
-curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.0/jev-loop-0.1.0.tgz
-curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.0/SHA256SUMS
+curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.1/jev-loop-0.1.1.tgz
+curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.1/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf jev-loop-0.1.0.tgz --strip-components=1
+tar -xzf jev-loop-0.1.1.tgz --strip-components=1
 pi install "$install_dir"
 ```
 
@@ -33,7 +33,7 @@ must not be deleted while its path remains registered.
 ## Install from tagged source
 
 ```bash
-git clone --branch v0.1.0 https://github.com/mud-the-developer/jev-loop.git
+git clone --branch v0.1.1 https://github.com/mud-the-developer/jev-loop.git
 cd jev-loop
 npm ci
 npm run build
@@ -129,6 +129,24 @@ No repeated setup approval for ordinary rework in the same live scope. Restart, 
 
 Explicit JEV pause/delete through `/loop` management or `LoopDelete` drains owned local review before acknowledgement. `LoopUpdate paused` does the same only after its progress update succeeds. Remote service quiescence is not inferred.
 
+### Completion review diagnostics
+
+A completion attempt returns bounded local observations in
+`LoopUpdate.details.completionReview`, retained with that parent tool result in
+Pi's session history. It records the actual verifier exit/coverage, assessment
+scope (`"all"` or a one-based criterion), encoded context length and SHA-256,
+and validated advice choice/confidence/probabilities/model. It contains no raw
+question/context, progress summary, original goal, command/argv, cwd or verifier
+output. It is not telemetry, new evidence, execution authority or proof of
+completion; it does not change the public JEV request, candidates or threshold.
+
+At most one overall assessment and eight focused diagnoses are recorded per
+attempt. An absent verifier means it was not observed; `unobserved` advice
+means no accepted response was recorded, not proof of non-delivery. Canceled,
+stale or malformed responses cannot become accepted observations. Human
+handoffs and existing errors remain unchanged. Old reviews are not reconstructed
+from persisted intent, and a receipt alone never authorizes another review.
+
 ### Adaptive operating budgets
 
 Opt in with `completion.budgetRange: { minFires, minExpiresIn }`; top-level
@@ -140,7 +158,8 @@ initially and after a fire). A sole possible value needs no model request.
 The hard lifetime starts once at genuine approval; initial waiting is separate.
 `LoopUpdate` reviews the operating allocation after work, using optional
 separate non-sensitive English `budgetEvidence` or safe numeric facts—not raw
-state/metrics. An unchanged decision is not repeatedly queried in the same
+state/metrics. Missing budget evidence never borrows `completionEvidence`,
+including automatic continuation after an unmet completion review. An unchanged decision is not repeatedly queried in the same
 fire. Completion `met` closes without a needless budget renewal.
 
 Operating exhaustion is a `budget_limit` checkpoint, not authority to resume.
@@ -148,7 +167,10 @@ Only a valid in-envelope review can renew that checkpoint. It cannot reset the
 original start, raise hard ceilings, resurrect an administrative/cancelled/
 expired/hard-capped goal or renew a legacy fixed loop. Restarts require fresh
 native range authority. `LoopList` and the dashboard distinguish operating
-limits from total hard limits and stored intent from observed review.
+limits from total hard limits and stored intent from observed review. Dashboard
+budgets use separate **Fires** and **Time** rows: `run` is the current operating
+allocation and `hard` is the approved total ceiling. Fire counts are accounted
+requests, not inferred delivered wakes; time values show remaining lifetime.
 
 These are source features; examples and tests do not approve an actual run.
 
@@ -205,9 +227,9 @@ npm run build
 PI_LOOP_LIVE_MODEL="<provider/model[:thinking]>" npm run test:e2e:workflow
 ```
 
-The operator-mediated JEV acceptance target is `npm run test:e2e:jev`; without an explicit human/UI client it reports SKIP, not a pass. It never auto-approves or reads backend credentials. Current live-model/physical-terminal acceptance remains unverified; see the [operator procedure](./docs/TESTING.md#operator-mediated-jev-acceptance).
+The operator-mediated JEV acceptance target is `npm run test:e2e:jev`; without an explicit human/UI client it reports SKIP, not a pass. It never auto-approves or reads backend credentials. A controlled-parent run has passed with real human approval, local verification, public JEV advice and guarded completion; this does not establish autonomous-parent, physical-terminal or population-level usability acceptance; see the [operator procedure](./docs/TESTING.md#operator-mediated-jev-acceptance).
 
-See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](./AGENTS.md).
+See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](https://github.com/mud-the-developer/jev-loop/blob/v0.1.1/AGENTS.md).
 
 ## License
 

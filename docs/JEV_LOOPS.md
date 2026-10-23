@@ -405,8 +405,10 @@ Loop lifetime, fire limits, caller/session cancellation, scope/identity/CAS
 checks, fresh consent rules and supported-platform boundaries are unchanged.
 Waiting does not reset the original expiry. A caller, test client, host or JEV
 provider may retain its own earlier cancellation/timeout; this change does not
-silently modify another component. For example, the operator acceptance fixture
-still has its explicit three-minute overall bound.
+silently modify another component. The operator acceptance fixture separately
+bounds approval waiting by its original one-hour deadline, then execution by
+fifteen minutes after genuine approval clamped to that unchanged deadline. This
+fixture policy does not change runtime approval, verifier or goal budgets.
 
 A review reservation now lasts to loop expiry, so another process cannot
 steal it merely because 120 seconds elapsed. After a crash, persisted intent

@@ -11,7 +11,7 @@ npm run hooks:install
 
 Contributions use focused branches and signed, thematic commits. Open the first pull request against `main`; dependent pull requests target their predecessor branch. Run the local gate at every PR tip and relevant checks at each intermediate commit. Push normally with hooks; do not rewrite published stack history. Contributions are MIT licensed.
 
-The source-only development package is private and has no automated release or npm publication workflow. CI targets `main` and pull requests. POSIX JEV completion acceptance tests are not Windows-success claims: Windows runs the fail-closed rejection test instead. Publishing requires separate explicit authorization.
+GitHub release packages retain the npm private guard and have no automated release or npm publication workflow. CI targets `main` and pull requests. POSIX JEV completion acceptance tests are not Windows-success claims: Windows runs the fail-closed rejection test instead. Publishing requires separate explicit authorization.
 
 ## Local gate
 
@@ -28,6 +28,31 @@ git diff --check
 ```
 
 Lint currently reports two established optional-chain warnings; new warnings are not accepted.
+
+## Completion receipt and budget-separation checks
+
+The receipt is a feature expectation; the unwanted completion-to-budget summary
+fallback is a separately reproduced bug. Before production changes, the
+completed/unmet path failed the budget-separation assertion while ordinary
+continue and explicitly supplied budget summaries passed. Five initial receipt
+expectations failed on absent observations, with twenty passing controls.
+Red/green logs remain outside committed fixtures.
+
+`test/jev-completion-receipt.test.ts` exercises the registered `LoopUpdate`
+result, not a standalone formatter: actual overall advice, all eight focused
+diagnoses, failed verification, unavailable focused advice, exact human handoff,
+pre-execution stale scope and a late canceled response. Receipts must not retain
+raw goal/progress/packet/command/output/error values or invent unobserved advice;
+the returned observations must remain stable after cancellation. Candidate
+copies, call counts, hard limits, same-goal continuation and guarded completion
+are independently asserted. The real SDK suite also checks that the parent tool
+result and session branch both retain the receipt after nested execution.
+Controlled replies are not live-model evidence.
+
+`test/jev-adaptive-budget.test.ts` compares absent versus explicit budget
+summaries on both ordinary continue and automatic unmet rework. The completion
+summary must never be an implicit budget summary. Existing numeric fallback,
+range approval and state/CAS boundaries remain in force.
 
 ## Test layers
 
@@ -58,16 +83,19 @@ Its JSONL client must continuously read LF-delimited stdout and keep stdin
 open. Responses use only the current live request ID; wrong/stale IDs abort the
 run. Incoming buffered JSONL is limited to 32 KiB of UTF-8, not JavaScript
 character count. Abort clears the buffer and stops accepting further input.
-The fixture is bounded to three minutes and one aggregate JEV assessment plus
-at most one focused diagnosis for its single criterion. Identical assessments
+The fixture waits for approval only inside its original one-hour deadline.
+After genuine approval it permits at most fifteen minutes of execution, clamped
+to that same original deadline; a parent goal may impose an earlier process
+guard. It makes one aggregate JEV assessment plus at most one focused diagnosis
+for its single criterion. Identical assessments
 are not retried; a focused diagnosis is not a second aggregate review.
 
 1. Relay each `extension_ui_request` with method `confirm` to the actual human,
    showing its full title/message. Return `extension_ui_response` with that
    human's fresh choice, or cancellation. Never synthesize approval, reuse an
    old choice, or forward this UI payload to JEV: it contains local command
-   argv and cwd. The fixture's three-minute overall bound remains authoritative
-   even though the runtime itself now waits until loop expiry or cancellation.
+   argv and cwd. Waiting never moves the fixture's original hard deadline; the
+   post-approval execution timer cannot extend that deadline.
 2. The human-approved fixture first fails its fixed check, persists rework,
    writes only its own temporary readiness marker, then reruns the same check.
    It must not request another setup approval for this ordinary repair.
@@ -82,7 +110,19 @@ are not retried; a focused diagnosis is not a second aggregate review.
    not passes. Cleanup drains local review and removes the temporary fixture;
    remote model-service quiescence is not inferred.
 
-The automated harness tests exercise default SKIP, refusal, stale IDs,
+A current controlled-parent acceptance run observed one actual granted setup,
+real verifier exits `[7,0]`, one public `jev-1.13.0` assessment recommending `met`
+and protected deletion. Reported choice weights were met0.93/unmet0.07 and
+confidence0.86; these are one service response, not calibrated accuracy. The
+whole trial elapsed182013ms, including setup, operator relay and service work,
+not solely human input time. Earlier whole-client3/15-minute attempts expired
+before approval could be relayed: both accepted0, verification0, JEV0. They are
+held/deadline observations, not user refusals or passes. None was automatically
+replayed; each new scope and exact setup needed fresh approval. Real primary
+model autonomy, physical-terminal usability and a population benefit are not
+established by this controlled-parent pass.
+
+The automated harness tests exercise deadline-clamping, default SKIP, refusal, stale IDs,
 truncated/malformed JSON, and ASCII/multibyte oversize input with zero
 verification/JEV calls. They do not auto-approve a live run. The current manual
 attempt reached the real SDK approval request but operator approval was

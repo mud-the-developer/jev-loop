@@ -29,8 +29,46 @@ it.each([48, 80, 120])("bounds native layout at %s columns without mutating goal
 it.each([48, 80, 120])("keeps selected identity, budget and exit visible in a short terminal at %s columns", width => {
   const h = setup(3, 16); const lines = h.view.render(width); const text = lines.join("\n");
   expect(lines.length).toBeLessThanOrEqual(12); expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
-  expect(text).toContain("#1"); expect(text).toContain("fires"); expect(text).toContain("Esc close");
+  expect(text).toContain("#1"); expect(text).toContain("fires"); expect(text).toContain("Esc close"); expect(text).toContain("Resize");
 });
+it("does not clip the distinct hard fire ceiling from the narrow editor summary", () => {
+  const h = setup(); const fixed = renderGoalSummary(h.store.list(), () => undefined, theme, 48).join("\n");
+  expect(fixed).toContain("5 fires");
+  const now = Date.now(); const entry = structuredClone(h.store.get("1")!);
+  Object.assign(entry, { maxFires: 97, expiresAt: now + 4 * 3600000,
+    completion: { ...policy, budgetRange: { minFires: 3, minExpiresIn: "30m" } },
+    adaptiveBudget: { startedAt: now, fireLimit: 3, expiresAt: now + 30 * 60000, revision: 0, lastReviewedFireCount: 0 } });
+  expect(renderGoalSummary([entry], () => undefined, theme, 48).join("\n")).toMatch(/\b97\b/);
+});
+
+it.each([48, 80, 120])("keeps adaptive counts and both time limits on distinct readable rows at %s columns", width => {
+  const now = Date.now();
+  for (const rows of [16, 40]) {
+    const h = setup(1, rows); const entry = structuredClone(h.store.get("1")!);
+    Object.assign(entry, { fireCount: 1, maxFires: 30, expiresAt: now + 4 * 3600000,
+      completion: { ...policy, budgetRange: { minFires: 3, minExpiresIn: "30m" } },
+      adaptiveBudget: { startedAt: now, fireLimit: 3, expiresAt: now + 30 * 60000, revision: 0, lastReviewedFireCount: 0 } });
+    h.data.entries = () => [entry]; const before = structuredClone(entry);
+    for (const lines of [h.view.render(width), renderGoalSummary([entry], () => undefined, theme, width, now)]) {
+      expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
+      const fires = lines.find(line => line.includes("Fires")); const time = lines.find(line => line.includes("Time"));
+      expect(fires).toContain("1 used / 3 run"); expect(fires).toContain("30 hard");
+      expect(time).toContain("30m 0s run"); expect(time).toContain("4h 0m hard");
+      expect(fires).not.toBe(time);
+    }
+    expect(h.view.render(width).join("\n")).toContain("Esc close"); expect(entry).toEqual(before);
+  }
+});
+
+it("emphasizes the actual budget values instead of dimming the whole summary", () => {
+  vi.stubEnv("TERM", "xterm-256color"); vi.stubEnv("NO_COLOR", "");
+  try {
+    const h = setup(); const bold = { ...theme, bold: (value: string) => `\u001b[1m${value}\u001b[22m` } as Theme;
+    const lines = renderGoalSummary(h.store.list(), () => undefined, bold, 48);
+    expect(lines.find(line => line.includes("Fires"))).toContain("\u001b[1m0 used / 5 fires\u001b[22m");
+  } finally { vi.unstubAllEnvs(); }
+});
+
 it("NO_COLOR removes styling from list, panels and compact summary", () => {
   vi.stubEnv("NO_COLOR", "1");
   try {

@@ -27,6 +27,21 @@ workflow/task/orchestration ownership and budgets remain authoritative.
 - No new renderer, dependency, backend, persisted grant or configuration file.
   The installed pinned snapshot is not silently updated by development work.
 
+## Readability revision for 0.1.1
+
+One operator reported that time and fire counts were visible but hard to read.
+The task questionnaire was canceled, so task success, elapsed time, action/error
+counts and questionnaire scores remain unknown, not inferred successes.
+The earlier automated no-overflow result did not establish readability.
+
+A minimized regression also exposed a distinct hard fire ceiling being clipped
+from the 48-column editor summary while an ordinary fixed budget stayed visible.
+The revised presentation gives fires and remaining time separate labeled rows,
+bolds numeric values, and keeps operating versus hard values visible in the
+summary, details and short-terminal view. State, exit controls, accounting and
+read-only ownership are unchanged. Narrow-width and no-color checks remain
+engineering checks; a successful human recheck must be collected separately.
+
 ## Sources and chosen measures
 
 | Source | Applied measure | Boundary |

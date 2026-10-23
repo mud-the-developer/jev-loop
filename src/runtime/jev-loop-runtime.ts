@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { type BudgetBounds, budgetBounds, budgetEvidenceHash, budgetPacket, budgetTiers, operatingBudgetExhausted } from "../adaptive-budget.js";
 import { VERIFICATION_SUPPORTED, type VerificationOptions, type VerificationResult, verifyCompletion } from "../completion-verifier.js";
@@ -25,9 +25,20 @@ interface Options {
 }
 class StaleCompletionScopeError extends Error {}
 class BudgetDecisionError extends Error {}
+export interface CompletionReviewReceipt {
+  verifier?: { coverage: string; code: number | null; killed: boolean; signal?: VerificationResult["signal"] };
+  assessments: Array<{
+    criterion: "all" | number;
+    contextLength: number;
+    contextSha256: string;
+    status: "unobserved" | "recommended" | "needs_user";
+    reply?: Pick<NonNullable<ReturnType<typeof readCompletionAdvice>["reply"]>, "choice" | "confidence" | "probabilities" | "model">;
+  }>;
+}
 export interface CompletionReviewResult {
   completed: boolean;
   message: string;
+  receipt?: CompletionReviewReceipt;
   reworkScope?: () => void;
   askUser?: Extract<ReturnType<typeof readCompletionAdvice>, { status: "needs_user" }>["askUser"];
 }
@@ -264,8 +275,9 @@ export function createJevLoopRuntime(options: Options) {
   }
 
   async function review(entry: LoopEntry, evidence: unknown, ctx: ExtensionToolContext, caller?: AbortSignal): Promise<CompletionReviewResult> {
-    const held = (message: string) => ({ completed: false, message });
-    const rework = (message: string) => ({ completed: false, reworkScope: () => operation.check(), message: `unmet: ${message} ${atMaxFires(entry) ? "Fire cap exhausted; no continue/resume." : "Inspect the actual local evidence, identify the missing fact or failing behavior, then collect or repair within the approved scope. Continue this goal; do not pause solely because it is unmet or repeat unchanged advice."}` });
+    const receipt: CompletionReviewReceipt = { assessments: [] };
+    const held = (message: string) => ({ completed: false, message, receipt });
+    const rework = (message: string) => ({ completed: false, receipt, reworkScope: () => operation.check(), message: `unmet: ${message} ${atMaxFires(entry) ? "Fire cap exhausted; no continue/resume." : "Inspect the actual local evidence, identify the missing fact or failing behavior, then collect or repair within the approved scope. Continue this goal; do not pause solely because it is unmet or repeat unchanged advice."}` });
     if (!VERIFICATION_SUPPORTED) return held("JEV verification currently requires POSIX process-group cleanup.");
     if (!englishSummary(evidence, COMPLETION_EVIDENCE_LIMIT)) return held("Supply separate English completionEvidence of 1–1024 characters, without private data; completion held.");
     const progressSummary = evidence;
@@ -324,6 +336,7 @@ export function createJevLoopRuntime(options: Options) {
         check();
         return held("Completion held: the fixed verifier could not start or finish. Inspect its command locally; if it is wrong, cancel and recreate with the correct approved scope.");
       }
+      receipt.verifier = { coverage: policy.verification.description, code: verified.code, killed: verified.killed, ...(verified.signal ? { signal: verified.signal } : {}) };
       check();
       if (verified.killed || verified.signal || verified.code === null || !Number.isInteger(verified.code)) return held("Verification cancelled or invalid; inspect locally and resubmit with fresh approval.");
       if (verified.code !== 0) {
@@ -336,29 +349,38 @@ export function createJevLoopRuntime(options: Options) {
       async function assess(criterionIndex?: number) {
         check();
         if (!available(ctx)) return undefined;
+        const packet = completionPacket(policy, progressSummary, verificationCode, criterionIndex);
+        const observed: CompletionReviewReceipt["assessments"][number] = { criterion: criterionIndex === undefined ? "all" : criterionIndex + 1,
+          contextLength: packet.context.length, contextSha256: createHash("sha256").update(packet.context).digest("hex"), status: "unobserved" };
+        receipt.assessments.push(observed);
         let answer: ReturnType<typeof readCompletionAdvice>;
         try {
-          const result = await cancellable(ctx.executeTool("jev_decide", completionPacket(policy, progressSummary, verificationCode, criterionIndex), { signal: operation.signal }), operation.signal, operation.interruption);
+          const result = await cancellable(ctx.executeTool("jev_decide", packet, { signal: operation.signal }), operation.signal, operation.interruption);
           answer = readCompletionAdvice(result);
         } catch {
           check();
           return undefined;
         }
         check();
+        observed.status = answer.status;
+        if (answer.reply) {
+          const { choice, confidence, probabilities, model } = answer.reply;
+          observed.reply = { choice, confidence, probabilities: structuredClone(probabilities), model };
+        }
         return answer;
       }
       observation.phase = "advice";
       const advice = await assess();
       if (!advice) return held("Completion held: the JEV decision was unavailable, blocked or malformed. Inspect provider availability and tool permissions; do not retry automatically.");
       if (advice.status === "needs_user") {
-        return { completed: false, message: `needs_user: pass askUser unchanged to ask_user; if unavailable stop.\n${JSON.stringify(advice.askUser)}`, askUser: advice.askUser };
+        return { completed: false, receipt, message: `needs_user: pass askUser unchanged to ask_user; if unavailable stop.\n${JSON.stringify(advice.askUser)}`, askUser: advice.askUser };
       }
       if (advice.reply.choice === "unmet") {
         const deficient: string[] = [];
         for (let index = 0; index < policy.criteria.length; index++) {
           const diagnosis = await assess(index);
           if (!diagnosis) return held("Completion held: a criterion diagnosis was unavailable, blocked or malformed. Inspect locally; no continuation or automatic retry was authorized.");
-          if (diagnosis.status === "needs_user") return { completed: false, message: `needs_user: pass askUser unchanged to ask_user; if unavailable stop.\n${JSON.stringify(diagnosis.askUser)}`, askUser: diagnosis.askUser };
+          if (diagnosis.status === "needs_user") return { completed: false, receipt, message: `needs_user: pass askUser unchanged to ask_user; if unavailable stop.\n${JSON.stringify(diagnosis.askUser)}`, askUser: diagnosis.askUser };
           if (diagnosis.reply.choice === "unmet") deficient.push(`Unmet criterion ${index + 1}: ${policy.criteria[index]}`);
         }
         retainApproval = true;
@@ -369,7 +391,7 @@ export function createJevLoopRuntime(options: Options) {
       const completed = operation.store.stopDynamic(entry.id, "completed", {
         status: reserved.status, iteration: reserved.dynamic!.iteration, updatedAt: reserved.updatedAt, completionSnapshot: snapshot,
       });
-      return { completed, message: completed ? `Dynamic loop #${entry.id} completed and deleted` : "Controller changed during final completion; inspect LoopList and resubmit." };
+      return { completed, receipt, message: completed ? `Dynamic loop #${entry.id} completed and deleted` : "Controller changed during final completion; inspect LoopList and resubmit." };
     } catch (error) {
       // Store failures can follow a write; only known scope rejection is a clean hold.
       if (!(error instanceof StaleCompletionScopeError)) throw error;

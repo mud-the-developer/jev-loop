@@ -141,6 +141,12 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
         for (const call of decide.mock.calls) expect(JSON.parse(call[1].context).criteria).toEqual(policy.criteria);
       }
       expect(results.at(-1)!.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(blocked ? adaptive ? "blocked" : "held" : "completed and deleted") });
+      if (!blocked) {
+        const expected = { completionReview: { verifier: { code: 0 }, assessments: [expect.objectContaining({ criterion: "all", status: "recommended", reply: expect.objectContaining({ choice: "met" }) })] } };
+        expect(results.at(-1)).toMatchObject({ details: expected });
+        const persisted = manager.getBranch().filter(entry => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "FixtureDriver").at(-1);
+        expect(persisted).toMatchObject({ type: "message", message: { role: "toolResult", details: expected } });
+      }
       expect(store.get("1") === undefined).toBe(adaptive && blocked || !blocked);
     } finally {
       await session?.abort(); await runtime?.shutdown(); session?.dispose();

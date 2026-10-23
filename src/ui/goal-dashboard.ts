@@ -38,10 +38,14 @@ function remaining(entry: LoopEntry, now: number): string {
   const seconds = Math.max(0, Math.ceil((entry.expiresAt - now) / 1000));
   return seconds >= 3600 ? `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
-function budgetLabel(entry: LoopEntry, now: number): string {
+function budgetLines(entry: LoopEntry, now: number, theme: DashboardTheme): string[] {
   const budget = entry.adaptiveBudget;
-  return budget ? `operating ${entry.fireCount ?? 0}/${budget.fireLimit} fires · ${remaining({ ...entry, expiresAt: budget.expiresAt }, now)} left · hard ${entry.maxFires} / ${remaining(entry, now)}`
-    : `${entry.fireCount ?? 0}/${entry.maxFires} fires · ${remaining(entry, now)} left`;
+  const fires = budget ? `${entry.fireCount ?? 0} used / ${budget.fireLimit} run` : `${entry.fireCount ?? 0} used / ${entry.maxFires} fires`;
+  const left = remaining(budget ? { ...entry, expiresAt: budget.expiresAt } : entry, now);
+  return [
+    `Fires  ${theme.bold(fires)}${budget ? ` · ${theme.bold(`${entry.maxFires} hard`)}` : ""}`,
+    `Time   ${theme.bold(`${left} ${budget ? "run" : "left"}`)}${budget ? ` · ${theme.bold(`${remaining(entry, now)} hard`)}` : ""}`,
+  ];
 }
 function tone(entry: LoopEntry, phase?: CompletionReviewPhase) { return entry.status === "paused" ? "warning" : phase ? "accent" : "muted"; }
 
@@ -51,8 +55,8 @@ export function renderGoalSummary(entries: LoopEntry[], phase: GoalDashboardData
   const entry = entries.find(item => phase(item)) ?? entries[0]!;
   const local = phase(entry);
   return [
-    theme.fg("accent", theme.bold(`◆ JEV LOOP  ·  ${entries.length} ${entries.length === 1 ? "goal" : "goals"}`)),
-    theme.fg(tone(entry, local), truncateToWidth(`#${entry.id} ${stateLabel(entry, local, now)} · ${budgetLabel(entry, now)}`, width)),
+    theme.fg("accent", theme.bold(`◆ JEV LOOP · #${entry.id} ${stateLabel(entry, local, now)} · ${entries.length} ${entries.length === 1 ? "goal" : "goals"}`)),
+    ...budgetLines(entry, now, theme),
     theme.fg("muted", truncateToWidth(`${goalText(entry.prompt)}  ·  /jev-loop to inspect`, width)),
   ].map(line => truncateToWidth(line, width));
 }
@@ -131,7 +135,7 @@ export class GoalDashboard {
     const phase = this.data.phase(entry); const now = Date.now();
     const status = this.theme.fg(tone(entry, phase), this.theme.bold(`#${entry.id}  ${stateLabel(entry, phase, now)}`));
     const title = wrapTextWithAnsi(this.theme.bold(goalText(entry.prompt)), width).slice(0, 2);
-    const budget = `${budgetLabel(entry, now)} (accounted)`;
+    const budget = budgetLines(entry, now, this.theme);
     const tree = [
       "┌ Saved policy · not persisted execution authority",
       `├ Progress · iteration ${entry.dynamic?.iteration ?? 0}${entry.dynamic?.awaitingUpdate ? "; awaiting update" : "; next fire not reported as delivered"}`,
@@ -142,8 +146,8 @@ export class GoalDashboard {
       "", this.theme.bold("VERIFIER COVERAGE"), goalText(entry.completion!.verification.description),
       "", this.theme.bold("RECOVERY & AUTHORITY"), ...formatLoopLifecycle(entry, { storageScope: this.data.storageScope(), nextFireAt: this.data.nextFire(entry.id), now }).map(goalText),
     ].flatMap(line => wrapTextWithAnsi(line, width));
-    const available = Math.max(1, rows - 3 - title.length); this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, tree.length - available)));
-    return [status, ...title, truncateToWidth(budget, width), this.theme.fg("dim", `DETAIL ${this.scroll + 1}–${Math.min(tree.length, this.scroll + available)}/${tree.length} · Tab to focus`),
+    const available = Math.max(1, rows - 2 - title.length - budget.length); this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, tree.length - available)));
+    return [status, ...title, ...budget.map(line => truncateToWidth(line, width)), this.theme.fg("dim", `DETAIL ${this.scroll + 1}–${Math.min(tree.length, this.scroll + available)}/${tree.length} · Tab to focus`),
       ...tree.slice(this.scroll, this.scroll + available)];
   }
   render(width: number): string[] {
@@ -160,8 +164,8 @@ export class GoalDashboard {
     if (height < 18) {
       return [header, this.theme.fg("muted", truncateToWidth(lead, width)),
         selected ? `▸ #${selected.id} ${stateLabel(selected, this.data.phase(selected), Date.now())}` : "No JEV controllers",
-        selected ? budgetLabel(selected, Date.now()) : "g prepares a goal, not approval",
-        selected ? goalText(selected.prompt) : "Ready for your next goal",
+        ...(selected ? budgetLines(selected, Date.now(), this.theme) : ["g prepares a goal, not approval"]),
+        ...(height >= 9 || !selected ? [selected ? goalText(selected.prompt) : "Ready for your next goal"] : []),
         "Resize for criteria & recovery", "↑↓ select · g start · x cancel", `Esc close · m motion ${this.motion ? "on" : "off"}`]
         .map(line => truncateToWidth(line, width));
     }

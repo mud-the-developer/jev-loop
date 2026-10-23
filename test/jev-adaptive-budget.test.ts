@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LoopStore } from "../src/store.js";
 import { canResumeFromInspection, formatLoopLifecycle } from "../src/ui/lifecycle-presentation.js";
-import { deferred, fixture, outcome, policy, text } from "./helpers/jev-loop-fixture.js";
+import { deferred, fixture, outcome, policy, recommendation, text } from "./helpers/jev-loop-fixture.js";
 
 const sessions: ReturnType<typeof fixture>[] = [];
 const directories: string[] = [];
@@ -62,6 +62,31 @@ describe.skipIf(process.platform === "win32")("approved adaptive JEV budget enve
       expect(packet).not.toContain(h.ctx.cwd); expect(packet).not.toContain(policy.verification.command);
       expect(packet).not.toContain(policy.verification.args[0]);
     }
+  });
+
+  it.each(["continue", "completed"])("keeps budget advice separate from completion-only evidence after %s", async status => {
+    const h = setup();
+    h.executeTool.mockImplementation(async (_name, packet) => packet.options[0].id === "budget_lower" ? choose(packet) : outcome(recommendation("unmet")));
+    await h.create(createParams); h.store.fire("1"); const initialCalls = h.executeTool.mock.calls.length;
+    const completionOnly = "Completion-only observations must not be reused for budget advice.";
+    await h.call("LoopUpdate", { id: "1", status, completionEvidence: completionOnly });
+    const packets = h.executeTool.mock.calls.slice(initialCalls).map(call => call[1]).filter(packet => packet.options[0].id === "budget_lower");
+    expect(packets).toHaveLength(4);
+    for (const packet of packets) {
+      expect(JSON.parse(packet.context).untrustedBudgetEvidence).not.toContain(completionOnly);
+      expect(packet.context).not.toContain(h.ctx.cwd);
+    }
+    expect(h.store.get("1")?.adaptiveBudget?.revision).toBe(1);
+  });
+
+  it("uses an explicitly authored budget summary during unmet rework", async () => {
+    const h = setup(); h.executeTool.mockImplementation(async (_name, packet) => packet.options[0].id === "budget_lower" ? choose(packet) : outcome(recommendation("unmet")));
+    await h.create(createParams); h.store.fire("1"); const initialCalls = h.executeTool.mock.calls.length;
+    const budgetOnly = "Another authorized observation is needed within the existing envelope.";
+    await h.complete({ completionEvidence: "Completion-only observations remain separate.", budgetEvidence: budgetOnly });
+    const packets = h.executeTool.mock.calls.slice(initialCalls).map(call => call[1]).filter(packet => packet.options[0].id === "budget_lower");
+    expect(packets).toHaveLength(4);
+    for (const packet of packets) expect(JSON.parse(packet.context).untrustedBudgetEvidence).toBe(budgetOnly);
   });
 
   it.each([

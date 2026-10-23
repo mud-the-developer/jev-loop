@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.1) (2026-10-23)
+
+### Features
+
+* **acceptance:** separate the operator fixture's approval waiting and post-approval execution windows, clamp execution to its unchanged original deadline, and record interruption causes without classifying a late response as refusal. A fresh human-approved local-verifier/public-JEV guarded completion passed; synthetic parent messages are not physical-terminal or population usability evidence.
+* **jev:** retain bounded completion-review diagnostics in the parent tool result: observed verifier exit/coverage, assessment scope, context length/hash and accepted advice metadata. Exclude raw inputs/output and preserve candidate, authority, cancellation and continuation boundaries.
+
+### Bug Fixes
+
+* **dashboard:** separate fire counts and remaining time into labeled, emphasized rows so operating and hard limits are not lost in a crowded status line; preserve narrow-terminal exit controls and read-only state.
+* **package:** pin the contributor-guide URL to the source version instead of linking an unshipped archive file; package smoke now checks relative README targets.
+* **jev:** keep automatic unmet budget advice separate from completion evidence; use only explicit budget evidence or safe numeric facts, matching ordinary continuation and the approved disclosure.
+
 ## [0.1.0](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.0) (2026-10-23)
 
 ### Features
