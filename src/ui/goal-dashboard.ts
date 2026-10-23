@@ -55,9 +55,8 @@ export function renderGoalSummary(entries: LoopEntry[], phase: GoalDashboardData
   const entry = entries.find(item => phase(item)) ?? entries[0]!;
   const local = phase(entry);
   return [
-    theme.fg("accent", theme.bold(`◆ JEV LOOP · #${entry.id} ${stateLabel(entry, local, now)} · ${entries.length} ${entries.length === 1 ? "goal" : "goals"}`)),
+    theme.fg("accent", theme.bold(`◆ #${entry.id} ${stateLabel(entry, local, now)} · ${goalText(entry.completion?.goal ?? entry.prompt)}`)),
     ...budgetLines(entry, now, theme),
-    theme.fg("muted", truncateToWidth(`${goalText(entry.prompt)}  ·  /jev-loop to inspect`, width)),
   ].map(line => truncateToWidth(line, width));
 }
 
@@ -106,7 +105,7 @@ export class GoalDashboard {
   private selected(): LoopEntry | undefined { return this.renderedEntries.find(entry => identity(entry) === this.selectedKey); }
   private syncList(maxVisible: number) {
     const entries = this.data.entries().filter(entry => entry.completion);
-    const items = entries.map(entry => ({ value: identity(entry), label: `#${entry.id} ${goalText(entry.prompt)}`,
+    const items = entries.map(entry => ({ value: identity(entry), label: `#${entry.id} ${goalText(entry.completion?.goal ?? entry.prompt)}`,
       description: stateLabel(entry, this.data.phase(entry), Date.now()) }));
     const signature = JSON.stringify([maxVisible, items]);
     if (signature !== this.signature) {
@@ -134,8 +133,10 @@ export class GoalDashboard {
   private details(entry: LoopEntry, width: number, rows: number): string[] {
     const phase = this.data.phase(entry); const now = Date.now();
     const status = this.theme.fg(tone(entry, phase), this.theme.bold(`#${entry.id}  ${stateLabel(entry, phase, now)}`));
-    const title = wrapTextWithAnsi(this.theme.bold(goalText(entry.prompt)), width).slice(0, 2);
+    const title = wrapTextWithAnsi(this.theme.bold(goalText(entry.completion?.goal ?? entry.prompt)), width).slice(0, 2);
     const budget = budgetLines(entry, now, this.theme);
+    if (!this.detailFocus) return [status, ...title, ...budget,
+      ...(entry.completionReview && !phase ? ["Review reservation · unobserved"] : []), this.theme.fg("muted", "Tab/Enter: details")];
     const tree = [
       "┌ Saved policy · not persisted execution authority",
       `├ Progress · iteration ${entry.dynamic?.iteration ?? 0}${entry.dynamic?.awaitingUpdate ? "; awaiting update" : "; next fire not reported as delivered"}`,
@@ -165,7 +166,7 @@ export class GoalDashboard {
       return [header, this.theme.fg("muted", truncateToWidth(lead, width)),
         selected ? `▸ #${selected.id} ${stateLabel(selected, this.data.phase(selected), Date.now())}` : "No JEV controllers",
         ...(selected ? budgetLines(selected, Date.now(), this.theme) : ["g prepares a goal, not approval"]),
-        ...(height >= 9 || !selected ? [selected ? goalText(selected.prompt) : "Ready for your next goal"] : []),
+        ...(height >= 9 || !selected ? [selected ? goalText(selected.completion?.goal ?? selected.prompt) : "Ready for your next goal"] : []),
         "Resize for criteria & recovery", "↑↓ select · g start · x cancel", `Esc close · m motion ${this.motion ? "on" : "off"}`]
         .map(line => truncateToWidth(line, width));
     }

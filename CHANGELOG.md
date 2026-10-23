@@ -9,6 +9,7 @@
 
 ### Bug Fixes
 
+* **dashboard:** keep the default view concise, reveal criteria/check/recovery on existing Tab/Enter focus, and omit full local instruction prompts from labels and the three-row editor summary.
 * **dashboard:** separate fire counts and remaining time into labeled, emphasized rows so operating and hard limits are not lost in a crowded status line; preserve narrow-terminal exit controls and read-only state.
 * **package:** pin the contributor-guide URL to the source version instead of linking an unshipped archive file; package smoke now checks relative README targets.
 * **jev:** keep automatic unmet budget advice separate from completion evidence; use only explicit budget evidence or safe numeric facts, matching ordinary continuation and the approved disclosure.

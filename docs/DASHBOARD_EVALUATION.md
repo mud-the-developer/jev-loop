@@ -42,6 +42,16 @@ summary, details and short-terminal view. State, exit controls, accounting and
 read-only ownership are unchanged. Narrow-width and no-color checks remain
 engineering checks; a successful human recheck must be collected separately.
 
+A later qualitative operator report described the result as acceptable overall
+but still too text-heavy. No task time, action count or rating was supplied.
+The next revision keeps the default dashboard to a concise policy goal, state
+and the two budget rows. Tab/Enter reveals criteria, verifier and recovery
+information using the existing focus control. The editor widget uses three rows
+and never flattens the full local instruction prompt into the default view.
+The scripted criteria task now records its added Tab action rather than hiding
+the interaction cost; human acceptance of this denser-to-detail revision is not
+inferred from the report about the previous view.
+
 ## Sources and chosen measures
 
 | Source | Applied measure | Boundary |

@@ -129,6 +129,10 @@ No repeated setup approval for ordinary rework in the same live scope. Restart, 
 
 Explicit JEV pause/delete through `/loop` management or `LoopDelete` drains owned local review before acknowledgement. `LoopUpdate paused` does the same only after its progress update succeeds. Remote service quiescence is not inferred.
 
+The default dashboard shows a concise goal, state and budget; use **Tab/Enter**
+to expand criteria, verifier and recovery details. The editor summary stays at
+three rows and does not display the full local instruction prompt.
+
 ### Completion review diagnostics
 
 A completion attempt returns bounded local observations in

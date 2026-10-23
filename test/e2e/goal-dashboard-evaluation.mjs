@@ -41,9 +41,9 @@ function task(name,keys,check,rows=40){
   }finally{h.view.dispose();}
 }
 task('read_selected_status_and_budget',[],h=>{const text=h.view.render(120).join('\n');assert(text.includes('#1')&&text.includes('fires'));});
-task('read_selected_criteria',[],h=>assert(h.view.render(120).join('\n').includes(fixturePolicy.criteria[0])));
+task('read_selected_criteria',['\t'],h=>assert(h.view.render(120).join('\n').includes(fixturePolicy.criteria[0])));
 task('select_third_goal',['\x1b[B','\x1b[B'],h=>assert(h.view.render(120).join('\n').includes('#3  WAITING')));
-task('keyboard_detail_scroll',['\t','\x1b[6~'],h=>assert(!h.view.render(120).join('\n').includes('DETAIL 1–')),24);
+task('keyboard_detail_scroll',['\t','\x1b[6~'],h=>{const text=h.view.render(120).join('\n');assert(text.includes('DETAIL ')&&!text.includes('DETAIL 1–'));},24);
 task('prepare_start_intent',['g'],h=>{assert.equal(h.action.type,'start');assert.equal(h.store.list().length,3);});
 task('request_explicit_cancel_intent',['x'],h=>{assert.equal(h.action.type,'cancel');assert.equal(h.action.entry.id,'1');assert.equal(h.store.list().length,3);});
 assert.equal(tasks.length,6);assert(tasks.every(value=>value.success),'Fixed task controls must pass');

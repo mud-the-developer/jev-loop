@@ -77,6 +77,24 @@ it("NO_COLOR removes styling from list, panels and compact summary", () => {
     expect(renderGoalSummary(h.store.list(), () => undefined, painted, 80).join("\n")).not.toContain("\u001b");
   } finally { vi.unstubAllEnvs(); }
 });
+it("defaults to concise goal and budget information and reveals policy only on focus", () => {
+  const h = setup(); const entry = h.store.get("1")!; entry.prompt = "PRIVATE LOOP INSTRUCTIONS ".repeat(100);
+  const before = structuredClone(h.store.list()); const initial = h.view.render(120).join("\n");
+  expect(initial).toContain(policy.goal); expect(initial).toContain("Fires"); expect(initial).toContain("Time");
+  expect(initial).not.toContain("PRIVATE LOOP INSTRUCTIONS"); expect(initial).not.toContain("ACCEPTANCE CRITERIA"); expect(initial).not.toContain("RECOVERY & AUTHORITY");
+  h.view.handleInput("\t"); const detailed = h.view.render(120).join("\n");
+  expect(detailed).toContain("ACCEPTANCE CRITERIA"); expect(detailed).toContain(policy.criteria[0]);
+  h.view.handleInput("\t"); expect(h.view.render(120).join("\n")).not.toContain("ACCEPTANCE CRITERIA");
+  expect(h.store.list()).toEqual(before);
+});
+
+it("keeps the editor summary to three rows without embedded loop instructions", () => {
+  const h = setup(); h.store.get("1")!.prompt = "PRIVATE LOOP INSTRUCTIONS ".repeat(100);
+  const lines = renderGoalSummary(h.store.list(), () => undefined, theme, 80);
+  expect(lines).toHaveLength(3); expect(lines.join("\n")).not.toContain("PRIVATE LOOP INSTRUCTIONS");
+  expect(lines.join("\n")).toContain(policy.goal); expect(lines.join("\n")).toContain("Fires"); expect(lines.join("\n")).toContain("Time");
+});
+
 it("shows a persisted reservation as unobserved, not running", () => {
   const h = setup(); const entry = h.store.get("1")!;
   h.store.reserveCompletionReview("1", JSON.stringify(entry), { id: "reservation", expiresAt: Date.now() + 60000 });
