@@ -463,12 +463,13 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
           ? getScheduler().nextFire(entry.id)
           : undefined;
         const activity = entry.workflow ? deriveWorkflowActivity(entry, now) : undefined;
-        const statusIcon = entry.status === "active" ? "*" : entry.status === "paused" ? "-" : "x";
-        let line = `${statusIcon} #${entry.id} [${entry.status}] ${entry.prompt.slice(0, 60)}`;
+        const expired = now >= entry.expiresAt;
+        const statusIcon = expired ? "x" : entry.status === "active" ? "*" : "-";
+        let line = `${statusIcon} #${entry.id} [${expired ? "expired" : entry.status}] ${entry.prompt.slice(0, 60)}`;
         line += ` (${triggerDesc})`;
         if (activity) line += ` [activity:${activity.status} ${formatCompactWorkflowDuration(activity.activityMs)}]`;
         line += ` expiresAt: ${new Date(entry.expiresAt).toISOString()}`;
-        if (nextFire) {
+        if (nextFire && !expired) {
           const remaining = Math.max(0, nextFire - now);
           line += ` next: ${formatRemaining(remaining)}`;
         }
@@ -485,7 +486,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
           line += ` [JEV completion] goal: ${entry.completion.goal}`;
           line += ` criteria: ${JSON.stringify(entry.completion.criteria)}`;
           line += ` verifier coverage: ${entry.completion.verification.description}`;
-          line += " · Complete through LoopUpdate with English completionEvidence; deletion is cancellation.";
+          line += expired ? " · Expired: inspect retained intent; execution and completion are unavailable." : " · Complete through LoopUpdate with English completionEvidence; deletion is cancellation.";
         }
         if (entry.orchestration) {
           line += ` [orchestration:${orchestrationStatusLabel(entry.orchestration.status)}]`;
@@ -511,7 +512,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
         kind: "loop",
         action: "list",
         tone: "info",
-        summary: `${kinds.join(" · ")} · ${loops.filter((entry) => entry.status === "active").length} active`,
+        summary: `${kinds.join(" · ")} · ${loops.filter((entry) => entry.status === "active" && now < entry.expiresAt).length} active`,
         expanded: displayRows(lines, workflowCount > 0 ? 16 : 8),
       }));
     },

@@ -10,7 +10,7 @@ function setup() {
   const { pi, toolMap } = createMockPi();
   const store = new LoopStore(); // memory mode, no file I/O
   const triggerSystem = { add: vi.fn(), remove: vi.fn() };
-  const scheduler = { nextFire: vi.fn(() => undefined) };
+  const scheduler = { nextFire: vi.fn((): number | undefined => undefined) };
   const monitorManager = { get: vi.fn(() => undefined) };
   const onDynamicLoopActivated = vi.fn();
   const admissionProviders: import("../src/workflow-admission.js").WorkflowAdmissionProvider[] = [];
@@ -44,7 +44,7 @@ function setup() {
   });
   const result = async (name: string, args: any) => await toolMap.get(name)!.execute!("t", args);
   const text = async (name: string, args: any) => (await result(name, args)).content[0].text as string;
-  return { store, triggerSystem, text, result, toolMap, admissionProviders, maybeBootstrapTaskLoop, isTaskSystemReady, onDynamicLoopActivated, cancelOrchestration };
+  return { store, triggerSystem, scheduler, text, result, toolMap, admissionProviders, maybeBootstrapTaskLoop, isTaskSystemReady, onDynamicLoopActivated, cancelOrchestration };
 }
 
 describe("LoopCreate", () => {
@@ -256,6 +256,21 @@ describe("LoopList", () => {
     expect(out).toContain("#1");
     expect(out).toContain("[active]");
     expect(out).toContain("cron:");
+  });
+
+  it.each(["active", "paused"])("presents retained %s intent as expired without counting it active or mutating it", async status => {
+    const h = setup(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    try {
+      const expired = h.store.create({ type: "cron", schedule: "*/5 * * * *" }, "Expired intent", { recurring: true, expiresIn: "1s" });
+      if (status === "paused") h.store.pause(expired.id);
+      h.store.create({ type: "dynamic" }, "Live control", { recurring: true, expiresIn: "1h" });
+      vi.setSystemTime(new Date("2026-01-01T00:00:01Z")); h.scheduler.nextFire.mockReturnValue(Date.now() + 60_000); const before = structuredClone(h.store.list());
+      const result = await h.result("LoopList", {}); const output = result.content[0].text;
+      expect(output).toContain("x #1 [expired]"); expect(output).toContain("#2 [active]");
+      expect(output.split("\n")[0]).not.toContain(" next:");
+      expect(result.details).toMatchObject({ summary: "2 loops · 1 active" });
+      expect(h.store.list()).toEqual(before); expect(h.triggerSystem.add).not.toHaveBeenCalled(); expect(h.triggerSystem.remove).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 
   it("shows the stable expiry boundary for recurring loops", async () => {
@@ -1035,7 +1050,7 @@ describe("Workflow tools", () => {
       outcome: "to_bb",
       targetState: "bb_state",
       maxAttempts: 1,
-    });
+    }, entry.createdAt);
 
     expect(message.indexOf("to_bb")).toBeLessThan(message.indexOf("to_aa"));
     expect(message).toContain("Route gap: all declared outcomes are unavailable");
@@ -1076,7 +1091,7 @@ describe("Workflow tools", () => {
       code: "unbounded_self_loop",
       outcome: "still_missing",
       targetState: "wait",
-    });
+    }, entry.createdAt);
 
     expect(message).toContain("Unsafe self-loop");
     expect(message).toContain("Use WorkflowRevise to add maxAttempts or redirect the outcome");

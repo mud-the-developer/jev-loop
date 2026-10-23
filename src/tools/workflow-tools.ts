@@ -180,6 +180,7 @@ export function formatWorkflowSummary(entry: LoopEntry, heading: string, failure
   if (entry.pause) message += `\nPause cause: ${entry.pause.kind}${entry.pause.reason ? ` — ${entry.pause.reason}` : ""}`;
   if (workflow.lastTransition) message += `\n${formatLastTransitionLines(workflow.lastTransition).join("\n")}`;
   if (state?.prompt) message += `\nInstruction: ${state.prompt}`;
+  if (now >= entry.expiresAt) return `${message}\nController expired. Inspect retained work; no claim, resume or transition. Replace only if explicitly authorized.`;
   const execution = workflow.activeExecution;
   if (execution) {
     const lease = execution.lease;

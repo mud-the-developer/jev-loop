@@ -81,9 +81,10 @@ export function formatLoopLifecycle(entry: LoopEntry, context: LifecycleInspecti
   const cadence = entry.workflow && getActiveWorkflowStateLoop(entry.workflow);
   const trigger = cadence ? `workflow cron: ${cadence.schedule}` : formatTrigger(entry.trigger, "command");
   const nextDate = context.nextFireAt === undefined ? undefined : new Date(context.nextFireAt);
-  const nextFire = nextDate && Number.isFinite(nextDate.getTime()) ? nextDate.toISOString() : "not reported";
+  const expired = now >= entry.expiresAt;
+  const nextFire = expired ? "not eligible (expired)" : nextDate && Number.isFinite(nextDate.getTime()) ? nextDate.toISOString() : "not reported";
   const lines = [
-    `Kind: ${controllerKind(entry)} · status: ${entry.status}`,
+    `Kind: ${controllerKind(entry)} · status: ${expired ? "expired" : entry.status}`,
     `Storage: ${context.storageScope ? STORAGE_LABELS[context.storageScope] : "unknown (inspection context unavailable)"}`,
     `Authority: ${controllerAuthority(entry)}`,
     `Trigger: ${trigger}`,

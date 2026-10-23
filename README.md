@@ -3,7 +3,7 @@
 <h6 align="center">JEV-assisted completion on top of durable Pi loops, workflows, tasks, and monitoring.</h6>
 </p>
 
-An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.1`, distributed through [GitHub releases](https://github.com/mud-the-developer/jev-loop/releases). The npm `private` guard remains enabled: this is not an npm publication. Releases are manual; the CHANGELOG separates jev-loop releases from inherited upstream history.
+An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.2`, distributed through [GitHub releases](https://github.com/mud-the-developer/jev-loop/releases). The npm `private` guard remains enabled: this is not an npm publication. Releases are manual; the CHANGELOG separates jev-loop releases from inherited upstream history.
 
 This project focuses on English-only JEV inputs, minimal repeated approval within an authorized scope, and evidence-gated automatic completion. The inherited execution core is retained rather than rewritten.
 
@@ -14,13 +14,13 @@ validate the built package, then keep the extracted directory in a permanent
 location because Pi registers its local path:
 
 ```bash
-install_dir="$HOME/.local/share/pi-extensions/jev-loop-0.1.1"
+install_dir="$HOME/.local/share/pi-extensions/jev-loop-0.1.2"
 mkdir -p "$install_dir"
 cd "$install_dir"
-curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.1/jev-loop-0.1.1.tgz
-curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.1/SHA256SUMS
+curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.2/jev-loop-0.1.2.tgz
+curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.2/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf jev-loop-0.1.1.tgz --strip-components=1
+tar -xzf jev-loop-0.1.2.tgz --strip-components=1
 pi install "$install_dir"
 ```
 
@@ -33,7 +33,7 @@ must not be deleted while its path remains registered.
 ## Install from tagged source
 
 ```bash
-git clone --branch v0.1.1 https://github.com/mud-the-developer/jev-loop.git
+git clone --branch v0.1.2 https://github.com/mud-the-developer/jev-loop.git
 cd jev-loop
 npm ci
 npm run build
@@ -233,7 +233,7 @@ PI_LOOP_LIVE_MODEL="<provider/model[:thinking]>" npm run test:e2e:workflow
 
 The operator-mediated JEV acceptance target is `npm run test:e2e:jev`; without an explicit human/UI client it reports SKIP, not a pass. It never auto-approves or reads backend credentials. A controlled-parent run has passed with real human approval, local verification, public JEV advice and guarded completion; this does not establish autonomous-parent, physical-terminal or population-level usability acceptance; see the [operator procedure](./docs/TESTING.md#operator-mediated-jev-acceptance).
 
-See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](https://github.com/mud-the-developer/jev-loop/blob/v0.1.1/AGENTS.md).
+See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](https://github.com/mud-the-developer/jev-loop/blob/v0.1.2/AGENTS.md).
 
 ## License
 

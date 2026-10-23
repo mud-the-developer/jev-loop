@@ -1,6 +1,6 @@
 {
   "name": "jev-loop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "JEV-assisted agent loops for Pi, with scoped approval and evidence-gated completion.",
   "author": "mud-the-developer",

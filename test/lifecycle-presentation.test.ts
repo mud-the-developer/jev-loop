@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoopStore } from "../src/store.js";
+import { formatWorkflowSummary } from "../src/tools/workflow-tools.js";
 import type { LoopEntry } from "../src/types.js";
 import { canResumeFromInspection, formatLoopLifecycle } from "../src/ui/lifecycle-presentation.js";
 
@@ -173,7 +174,20 @@ describe("lifecycle inspection expectations and invariants", () => {
     entry.status = "paused";
     entry.expiresAt = NOW;
     expect(canResumeFromInspection(entry, NOW)).toBe(false);
-    expect(formatLoopLifecycle(entry, { now: NOW, nextFireAt: NOW + 10 }).join("\n")).toContain("expired controllers cannot resume");
+    const before = structuredClone(entry);
+    const output = formatLoopLifecycle(freeze(entry), { now: NOW, nextFireAt: NOW + 10 }).join("\n");
+    expect(output).toContain("status: expired"); expect(output).toContain("Next fire: not eligible (expired)");
+    expect(output).toContain("expired controllers cannot resume"); expect(entry).toEqual(before);
+  });
+
+  it("does not recommend claiming or transitioning expired retained workflow intent", () => {
+    const entry = workflow(new LoopStore());
+    expect(formatWorkflowSummary(entry, "Live control", undefined, NOW)).toContain("Next: Workflow");
+    entry.expiresAt = NOW; const before = structuredClone(entry);
+    const output = formatWorkflowSummary(freeze(entry), "Retained workflow", undefined, NOW);
+    expect(output).toContain("Controller expired.");
+    expect(output).not.toContain("Next: WorkflowClaim"); expect(output).not.toContain("Next: WorkflowTransition");
+    expect(output).not.toContain("claim it before continuing"); expect(entry).toEqual(before);
   });
 
   it("does not recommend resume for a semantic terminal", () => {

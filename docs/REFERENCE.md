@@ -41,7 +41,7 @@ Project scope shares durable state but does not yet elect one scheduler owner ac
 
 ## Loop model
 
-`LoopEntry.status` is `active` or `paused`. New pauses persist optional provenance as `pause:{kind,at,reason?}`. Kinds distinguish `administrative`, `controller_limit`, adaptive `budget_limit`, `semantic_terminal`, and `orchestration_settlement`; older paused snapshots may remain unattributed. Resume clears the record. Triggers are:
+`LoopEntry.status` is `active` or `paused`. New pauses persist optional provenance as `pause:{kind,at,reason?}`. Kinds distinguish `administrative`, `controller_limit`, adaptive `budget_limit`, `semantic_terminal`, and `orchestration_settlement`; older paused snapshots may remain unattributed. Resume clears the record. Inspection derives `expired` after the immutable deadline even if retained intent still stores `active` or `paused`: it does not count such intent as active or recommend future execution. This display does not retire, resume, claim or otherwise mutate the controller. Triggers are:
 
 - cron: `{type:"cron", schedule}`
 - event: `{type:"event", source, filter?}`

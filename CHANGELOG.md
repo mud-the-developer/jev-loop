@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.2](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.2) (2026-10-23)
+
+### Bug Fixes
+
+* **inspection:** present retained past-deadline controllers as expired, exclude them from active counts and future-fire/action guidance, and preserve all stored state. Expired workflow summaries no longer recommend claims, resume or transitions.
+
 ## [0.1.1](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.1) (2026-10-23)
 
 ### Features
