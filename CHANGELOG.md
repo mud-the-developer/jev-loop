@@ -1,10 +1,53 @@
 # Changelog
 
-## Unreleased
+## [0.1.3](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.3) (2026-10-24)
+
+### Security
+
+* **development:** override the SDK's vulnerable undici pin with compatible 8.12.3 while retaining Pi 1.2.0 and its API. This repository override does not update a separately installed Pi host.
 
 ### Bug Fixes
 
+* **dashboard:** honor detail focus and keyboard scrolling in short terminals without requiring a resize; preserve summary budgets, exit controls and read-only state. Size PageUp/PageDown to the visible detail rows so small pages cannot skip unseen text.
+
+## [0.1.2](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.2) (2026-10-23)
+
+### Bug Fixes
+
+* **monitors:** drain processes already stopping when shutdown begins, including shutdown called from a stop notification. Publish pending reaping before callbacks, preserving the original bounded cleanup and suppressing late notifications across teardown.
+* **inspection:** present retained past-deadline controllers as expired, exclude them from active counts and future-fire/action guidance, and preserve all stored state. Expired workflow summaries no longer recommend claims, resume or transitions.
+
+## [0.1.1](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.1) (2026-10-23)
+
+### Features
+
+* **acceptance:** separate the operator fixture's approval waiting and post-approval execution windows, clamp execution to its unchanged original deadline, and record interruption causes without classifying a late response as refusal. A fresh human-approved local-verifier/public-JEV guarded completion passed; synthetic parent messages are not physical-terminal or population usability evidence.
+* **jev:** retain bounded completion-review diagnostics in the parent tool result: observed verifier exit/coverage, assessment scope, context length/hash and accepted advice metadata. Exclude raw inputs/output and preserve candidate, authority, cancellation and continuation boundaries.
+
+### Bug Fixes
+
+* **dashboard:** keep the default view concise, reveal criteria/check/recovery on existing Tab/Enter focus, and omit full local instruction prompts from labels and the three-row editor summary.
+* **dashboard:** separate fire counts and remaining time into labeled, emphasized rows so operating and hard limits are not lost in a crowded status line; preserve narrow-terminal exit controls and read-only state.
+* **package:** pin the contributor-guide URL to the source version instead of linking an unshipped archive file; package smoke now checks relative README targets.
+* **jev:** keep automatic unmet budget advice separate from completion evidence; use only explicit budget evidence or safe numeric facts, matching ordinary continuation and the approved disclosure.
+
+## [0.1.0](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.0) (2026-10-23)
+
+### Features
+
+* **release:** distribute the first jev-loop GitHub release with a built package, SHA-256 checksums and pinned installation instructions. Keep npm publication disabled and preserve upstream MIT attribution and history.
+* **jev:** add opt-in once-approved finite budget ranges, initial and per-fire JEV operating allocations, immutable cumulative hard limits and explicit budget checkpoints. Preserve fixed loops, fresh restart authority, full-snapshot/lease fencing, privacy and permission hooks; start adaptive execution lifetime at actual approval.
+
+### Bug Fixes
+* **jev:** use met/unmet only, diagnose missing criterion support, and continue authorized work in the same goal instead of pausing for uncertainty. Preserve full evidence context, snapshot ownership, evidence novelty, expiry/fire limits and all permission/error boundaries.
+* **jev:** remove the separate 120-second initial-approval and completion-review caps by explicit operator request. Keep loop expiry/cancellation, fire limits and the 30-second verifier bound; retain review fencing through expiry and safely handle long timer delays.
+* **jev:** announce and release host attention around TUI setup approval using the existing Herdr wait protocol, so model-tool approval is distinguished from ordinary work. Signals carry no setup details and never grant consent; RPC, deadlines and permission checks remain unchanged.
+* **jev:** keep exact approval details scrollable with fixed choices/countdown in small terminals, default to No, and retain keyboard/mouse consent, RPC confirmation and existing bounds. Distinguish timeout, expiry and cancellation without granting retries or weakening the existing review/dashboard guards.
 * **tasks:** register the native task tools at `session_start` instead of six seconds after startup. A prompt sent inside that window used to go out with the pre-registration tool set, and the next request carried four more tools plus their prompt guidelines, so the request prefix changed once per session and every provider-side prompt cache missed (a full ~22k-token re-prefill on llama-server). The timer stays as a backstop and an external `pi-tasks` that answered the startup ping still wins.
+
+## Upstream pi-loop history
+
+The releases below belong to the upstream project, not jev-loop.
 
 ## [0.7.18](https://github.com/trvon/pi-loop/compare/pi-loop-v0.7.17...pi-loop-v0.7.18) (2026-10-14)
 

@@ -22,7 +22,11 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
     { blocked: false, goalEntry: true, repairFirst: true, navigate: false },
     { blocked: true, goalEntry: true, repairFirst: true, navigate: false },
     { blocked: false, goalEntry: true, repairFirst: true, navigate: true },
-  ])("preserves public goal, rework and permission boundaries (%j)", async ({ blocked, goalEntry, repairFirst, navigate }) => {
+    { blocked: false, goalEntry: true, repairFirst: false, navigate: false, diagnoseFirst: true },
+    { blocked: true, goalEntry: true, repairFirst: false, navigate: false, diagnoseFirst: true },
+    { blocked: false, goalEntry: false, repairFirst: false, navigate: false, adaptive: true },
+    { blocked: true, goalEntry: false, repairFirst: false, navigate: false, adaptive: true },
+  ])("preserves public goal, rework and permission boundaries (%j)", async ({ blocked, goalEntry, repairFirst, navigate, diagnoseFirst = false, adaptive = false }) => {
     const cwd = mkdtempSync(join(tmpdir(), "jev-sdk-"));
     const store = new LoopStore();
     const manager = SessionManager.inMemory(cwd);
@@ -30,8 +34,14 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
     const confirm = vi.fn(async () => true);
     const verifier = vi.fn(verifyCompletion);
     const results: Array<{ content: unknown[] }> = [];
+    let assessments = 0;
     const decide = vi.fn(async (..._args: any[]) => {
-      const details = recommendation();
+      const packet = _args[1];
+      const budgetChoice = adaptive && packet.options[0].id.startsWith("budget_");
+      const selected = budgetChoice ? ((store.get("1")?.fireCount ?? 0) > 0 ? packet.options.at(-1) : packet.options[0]) : undefined;
+      const details = selected ? { status: "recommended", advisoryOnly: true, option: selected,
+        reply: { choice: selected.id, confidence: 0.8, probabilities: Object.fromEntries(packet.options.map((option: any) => [option.id, option.id === selected.id ? 0.8 : 0.2])), model: "budget-sdk-fixture", usage: { inputTokens: 1, outputTokens: 1 } } }
+        : recommendation(diagnoseFirst && ++assessments === 1 ? "unmet" : "met");
       return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
     });
     const calls: Array<{ toolName: string; parentToolCallId?: string }> = [];
@@ -48,7 +58,7 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
         pi.registerTool({ name: "jev_decide", label: "Fixture JEV", description: "Controlled fixture only", parameters: Type.Object({}), execute: decide });
         pi.on("tool_call", event => {
           calls.push({ toolName: event.toolName, parentToolCallId: event.parentToolCallId });
-          if (blocked && event.toolName === "jev_decide") return { block: true, reason: "Fixture permission refusal" };
+          if (blocked && event.toolName === "jev_decide" && (!diagnoseFirst || calls.filter(call => call.toolName === "jev_decide").length > 1)) return { block: true, reason: "Fixture permission refusal" };
         });
         pi.registerTool({ name: "FixtureDriver", label: "Driver", description: "Run fixed SDK fixture actions", parameters: Type.Object({ action: Type.String() }),
           async execute(_id, input, signal, _update, ctx) {
@@ -57,9 +67,10 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
               const result = { content: [{ type: "text" as const, text: "Fixed fixture repaired." }], details: undefined };
               results.push(result); return result;
             }
+            if (adaptive && input.action === "continue") store.fire("1");
             const args = input.action === "create" ? {
               trigger: "idle", triggerType: "idle", prompt: goalEntry ? userGoal : "User goal", maxFires: 3, expiresIn: "1h",
-              completion: { ...policy, verification: { command: process.execPath,
+              completion: { ...policy, ...(adaptive ? { budgetRange: { minFires: 1, minExpiresIn: "30m" } } : {}), verification: { command: process.execPath,
                 args: ["-e", repairFirst ? 'process.exit(require("node:fs").existsSync("ready") ? 0 : 7)' : "process.exit(0)"],
                 description: "The fixed SDK readiness check must succeed" } },
             } : input.action === "continue"
@@ -82,7 +93,8 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
         sessionManager: manager, noTools: "builtin" }));
       await session.bindExtensions({ uiContext: { confirm, notify() {}, setStatus() {}, setWidget() {} } as any });
       const target = navigate ? manager.appendCustomEntry("fixture.navigation", { point: "base" }) : undefined;
-      const plan: Array<string | null> = ["create", ...(navigate ? [null] : []), ...(repairFirst ? ["complete", "continue", "repair"] : []), "complete", null];
+      const plan: Array<string | null> = adaptive ? blocked ? ["create", null] : ["create", "continue", "complete", null]
+        : ["create", ...(navigate ? [null] : []), ...(repairFirst || (diagnoseFirst && !blocked) ? ["complete", "continue", "repair"] : []), "complete", null];
       let phase = 0;
       session.agent.streamFunction = () => {
         const action = plan[phase++];
@@ -115,15 +127,27 @@ describe.skipIf(process.platform === "win32")("public Pi SDK nested-tool boundar
         expect(JSON.stringify(decide.mock.calls[0]![1])).not.toContain(cwd);
       }
       expect(phase).toBe(plan.length);
-      expect(results).toHaveLength(repairFirst ? 5 : 2);
-      expect(results[0]!.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("Loop #1 created") });
+      expect(results).toHaveLength(adaptive ? blocked ? 1 : 3 : repairFirst || (diagnoseFirst && !blocked) ? 5 : 2);
+      if (adaptive && blocked) expect(results[0]!.content[0]).toMatchObject({ type: "text", text: expect.stringMatching(/budget decision failed|blocked/) });
+      else expect(results[0]!.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("Loop #1 created") });
       expect(confirm).toHaveBeenCalledTimes(1);
       const codes = await Promise.all(verifier.mock.results.map(result => result.value));
-      expect(codes.map(result => result.code)).toEqual(repairFirst ? [7, 0] : [0]);
+      expect(codes.map(result => result.code)).toEqual(adaptive && blocked ? [] : repairFirst ? [7, 0] : diagnoseFirst && !blocked ? [0, 0] : [0]);
       expect(calls).toContainEqual(expect.objectContaining({ toolName: "jev_decide", parentToolCallId: expect.any(String) }));
-      expect(decide).toHaveBeenCalledTimes(blocked ? 0 : 1);
-      expect(results.at(-1)!.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(blocked ? "held" : "completed and deleted") });
-      expect(store.get("1") === undefined).toBe(!blocked);
+      expect(decide).toHaveBeenCalledTimes(adaptive ? blocked ? 0 : 9 : diagnoseFirst ? blocked ? 1 : 4 : blocked ? 0 : 1);
+      if (diagnoseFirst && !blocked) {
+        expect(decide.mock.calls[1]![1].question).toMatch(/criterion 1/);
+        expect(decide.mock.calls[2]![1].question).toMatch(/criterion 2/);
+        for (const call of decide.mock.calls) expect(JSON.parse(call[1].context).criteria).toEqual(policy.criteria);
+      }
+      expect(results.at(-1)!.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(blocked ? adaptive ? "blocked" : "held" : "completed and deleted") });
+      if (!blocked) {
+        const expected = { completionReview: { verifier: { code: 0 }, assessments: [expect.objectContaining({ criterion: "all", status: "recommended", reply: expect.objectContaining({ choice: "met" }) })] } };
+        expect(results.at(-1)).toMatchObject({ details: expected });
+        const persisted = manager.getBranch().filter(entry => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "FixtureDriver").at(-1);
+        expect(persisted).toMatchObject({ type: "message", message: { role: "toolResult", details: expected } });
+      }
+      expect(store.get("1") === undefined).toBe(adaptive && blocked || !blocked);
     } finally {
       await session?.abort(); await runtime?.shutdown(); session?.dispose();
       rmSync(cwd, { recursive: true, force: true });

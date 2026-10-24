@@ -3,14 +3,37 @@
 <h6 align="center">JEV-assisted completion on top of durable Pi loops, workflows, tasks, and monitoring.</h6>
 </p>
 
-An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.0-dev.0`, source-only and private to prevent npm publication. There is no automatic release workflow; the inherited CHANGELOG records upstream releases, not jev-loop releases.
+An independent project derived from [pi-loop](https://github.com/trvon/pi-loop) 0.7.18, retaining its Git history, MIT license, and attribution. The package is `jev-loop@0.1.3`, distributed through [GitHub releases](https://github.com/mud-the-developer/jev-loop/releases). The npm `private` guard remains enabled: this is not an npm publication. Releases are manual; the CHANGELOG separates jev-loop releases from inherited upstream history.
 
 This project focuses on English-only JEV inputs, minimal repeated approval within an authorized scope, and evidence-gated automatic completion. The inherited execution core is retained rather than rewritten.
 
-## Install from source
+## Install the release package
+
+Requires Node.js 22.19 or later and an existing Pi installation. Download and
+validate the built package, then keep the extracted directory in a permanent
+location because Pi registers its local path:
 
 ```bash
-git clone https://github.com/mud-the-developer/jev-loop.git
+install_dir="$HOME/.local/share/pi-extensions/jev-loop-0.1.3"
+mkdir -p "$install_dir"
+cd "$install_dir"
+curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.3/jev-loop-0.1.3.tgz
+curl --fail --location --remote-name https://github.com/mud-the-developer/jev-loop/releases/download/v0.1.3/SHA256SUMS
+sha256sum -c SHA256SUMS
+tar -xzf jev-loop-0.1.3.tgz --strip-components=1
+pi install "$install_dir"
+```
+
+On macOS, use `shasum -a 256 -c SHA256SUMS` instead. The checksum detects
+corruption or an unexpected artifact; it does not independently authenticate
+the publisher. Only download from the intended release. Run `/reload` in an
+existing Pi session, or start a new one, after installation. A local install
+must not be deleted while its path remains registered.
+
+## Install from tagged source
+
+```bash
+git clone --branch v0.1.3 https://github.com/mud-the-developer/jev-loop.git
 cd jev-loop
 npm ci
 npm run build
@@ -32,7 +55,7 @@ Start one self-paced JEV-assisted goal in your own language, then inspect or can
 /jev-loop cancel 1
 ```
 
-`/jev-loop` without arguments opens the native goal dashboard in TUI mode (RPC keeps its native menu). The dashboard provides goal selection, observed review phases, criteria and recovery details: `↑↓` select, `Tab` focus details, `PgUp/PgDn` scroll, `g` prepare a goal, `x` request explicit cancellation, `m` toggle motion, `Esc` close. A compact goal summary stays above the editor. [Design and measurement contract](./docs/DASHBOARD_EVALUATION.md). The parent prepares the English criteria and a known fixed verifier; the exact setup is approved once before creation. Defaults proposed for approval are five fires and one hour, not unlimited execution. If the agent is busy, setup waits only in memory and `/jev-loop cancel` can revoke it before handoff. No backend is installed or configured automatically.
+`/jev-loop` without arguments opens the native goal dashboard in TUI mode (RPC keeps its native menu). The dashboard provides goal selection, observed review phases, criteria and recovery details: `↑↓` select, `Tab` focus details, `PgUp/PgDn` scroll, `g` prepare a goal, `x` request explicit cancellation, `m` toggle motion, `Esc` close. A compact goal summary stays above the editor. [Design and measurement contract](./docs/DASHBOARD_EVALUATION.md). The parent prepares the English criteria and a known fixed verifier; the exact setup is approved once before creation. The goal-first handoff proposes a finite adaptive range for one native approval, not unlimited execution; explicitly fixed limits remain supported. If the agent is busy, setup waits only in memory and `/jev-loop cancel` can revoke it before handoff. No backend is installed or configured automatically.
 
 Moving within `/tree` cancels unfinished setup/dialog interactions from the old branch. Existing controllers stay session-wide with their original policy and budget; canceling a navigation does not cancel a valid dialog.
 
@@ -100,17 +123,67 @@ Use `/jev-loop <goal>` for the guided entrypoint; ordinary `/loop` usage is unch
 }
 ```
 
-Approve the exact bounded setup once in the native dialog. When ready, call `LoopUpdate` with `id`, `status="completed"`, and a separate non-sensitive English `completionEvidence` summary. The fixed verifier must actually pass and JEV must recommend `met` before automatic completion. `unmet` permits bounded rework; `unknown` holds completion. Verifier output, original prompts, and local state/metrics are not forwarded to JEV. The parent must exclude secrets and private artifacts from its summaries.
+Approve the exact bounded setup once in the native dialog. When ready, call `LoopUpdate` with `id`, `status="completed"`, and a separate non-sensitive English `completionEvidence` summary. The fixed verifier must actually pass and JEV must recommend `met` before automatic completion. Completion has only `met`/`unmet`; missing evidence is `unmet`. An unmet review diagnoses deficient criteria and continues the same goal within its original bounds. Inspect the reported gaps, collect or repair real evidence, then request another review—not an uncertainty-only pause or unchanged repeat. Verifier output, original prompts, and local state/metrics are not forwarded to JEV. The parent must exclude secrets and private artifacts from its summaries.
 
 No repeated setup approval for ordinary rework in the same live scope. Restart, cancellation, invalid execution, or a provider error requires fresh approval; existing mandatory permission/transmission gates remain. A fire-cap pause is not success and cannot extend its budget. [Contract, examples, evidence and limitations](./docs/JEV_LOOPS.md).
 
 Explicit JEV pause/delete through `/loop` management or `LoopDelete` drains owned local review before acknowledgement. `LoopUpdate paused` does the same only after its progress update succeeds. Remote service quiescence is not inferred.
 
+The default dashboard shows a concise goal, state and budget; use **Tab/Enter**
+to expand criteria, verifier and recovery details. The editor summary stays at
+three rows and does not display the full local instruction prompt.
+
+### Completion review diagnostics
+
+A completion attempt returns bounded local observations in
+`LoopUpdate.details.completionReview`, retained with that parent tool result in
+Pi's session history. It records the actual verifier exit/coverage, assessment
+scope (`"all"` or a one-based criterion), encoded context length and SHA-256,
+and validated advice choice/confidence/probabilities/model. It contains no raw
+question/context, progress summary, original goal, command/argv, cwd or verifier
+output. It is not telemetry, new evidence, execution authority or proof of
+completion; it does not change the public JEV request, candidates or threshold.
+
+At most one overall assessment and eight focused diagnoses are recorded per
+attempt. An absent verifier means it was not observed; `unobserved` advice
+means no accepted response was recorded, not proof of non-delivery. Canceled,
+stale or malformed responses cannot become accepted observations. Human
+handoffs and existing errors remain unchanged. Old reviews are not reconstructed
+from persisted intent, and a receipt alone never authorizes another review.
+
+### Adaptive operating budgets
+
+Opt in with `completion.budgetRange: { minFires, minExpiresIn }`; top-level
+`maxFires` and explicit `expiresIn` are the immutable **total hard ceilings**.
+The native dialog approves both ends once before JEV sees the budget request.
+JEV chooses finite min/mid/max tiers through binary comparisons (at most four
+initially and after a fire). A sole possible value needs no model request.
+
+The hard lifetime starts once at genuine approval; initial waiting is separate.
+`LoopUpdate` reviews the operating allocation after work, using optional
+separate non-sensitive English `budgetEvidence` or safe numeric facts—not raw
+state/metrics. Missing budget evidence never borrows `completionEvidence`,
+including automatic continuation after an unmet completion review. An unchanged decision is not repeatedly queried in the same
+fire. Completion `met` closes without a needless budget renewal.
+
+Operating exhaustion is a `budget_limit` checkpoint, not authority to resume.
+Only a valid in-envelope review can renew that checkpoint. It cannot reset the
+original start, raise hard ceilings, resurrect an administrative/cancelled/
+expired/hard-capped goal or renew a legacy fixed loop. Restarts require fresh
+native range authority. `LoopList` and the dashboard distinguish operating
+limits from total hard limits and stored intent from observed review. Dashboard
+budgets use separate **Fires** and **Time** rows: `run` is the current operating
+allocation and `hard` is the approved total ceiling. Fire counts are accounted
+requests, not inferred delivered wakes; time values show remaining lifetime.
+
+These are source features; examples and tests do not approve an actual run.
+
 ### When completion is held or fails
 
 | Situation | Next action |
 |---|---|
-| Required check exits nonzero | Repair and continue within the same approved budget; no repeated setup approval |
+| Required check exits nonzero | Same-goal rework is recorded with the exit code; inspect and repair within the same approved budget |
+| JEV says unmet, including missing evidence | Focused criterion checks identify gaps, then the same goal continues; resolve actual local causes before another review |
 | Fixed verifier cannot start/finish | Inspect the command locally; cancel and recreate if the fixed scope is wrong |
 | JEV advice is unavailable, blocked or malformed | Check the configured provider and tool permissions; do not retry automatically |
 | Local storage/settlement error | Inspect current state first: a write may already have happened; never infer completion or rollback from an absent ID |
@@ -158,9 +231,9 @@ npm run build
 PI_LOOP_LIVE_MODEL="<provider/model[:thinking]>" npm run test:e2e:workflow
 ```
 
-The operator-mediated JEV acceptance target is `npm run test:e2e:jev`; without an explicit human/UI client it reports SKIP, not a pass. It never auto-approves or reads backend credentials. Current live-model/physical-terminal acceptance remains unverified; see the [operator procedure](./docs/TESTING.md#operator-mediated-jev-acceptance).
+The operator-mediated JEV acceptance target is `npm run test:e2e:jev`; without an explicit human/UI client it reports SKIP, not a pass. It never auto-approves or reads backend credentials. A controlled-parent run has passed with real human approval, local verification, public JEV advice and guarded completion; this does not establish autonomous-parent, physical-terminal or population-level usability acceptance; see the [operator procedure](./docs/TESTING.md#operator-mediated-jev-acceptance).
 
-See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](./AGENTS.md).
+See [testing](./docs/TESTING.md) for local, property, package, benchmark, and live E2E gates. Contributors and agents must also follow [AGENTS.md](https://github.com/mud-the-developer/jev-loop/blob/v0.1.3/AGENTS.md).
 
 ## License
 

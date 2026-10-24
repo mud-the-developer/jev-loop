@@ -11,6 +11,7 @@ import { registerJevLoopCommand } from "../../src/commands/jev-loop-command.js";
 import { verifyCompletion } from "../../src/completion-verifier.js";
 import { LoopStore } from "../../src/store.js";
 import { registerLoopTools } from "../../src/tools/loop-tools.js";
+import { OPERATOR_APPROVAL_TIMEOUT_MS, OPERATOR_EXECUTION_TIMEOUT_MS, operatorExecutionDeadline } from "../helpers/operator-client-budget.js";
 
 // Operator-mediated SDK acceptance, not a worker or a credential/backend client.
 // No approval is synthesized: the client must relay the human's current UI choice
@@ -22,11 +23,15 @@ if (!process.argv.includes("--operator-bridge")) {
 if (process.platform === "win32") throw new Error("This completion fixture requires POSIX verification.");
 
 const emit = message => process.stdout.write(`${JSON.stringify(message)}\n`);
+const hardDeadline = Date.now() + OPERATOR_APPROVAL_TIMEOUT_MS;
+const startedAt = performance.now();
+let stopReason;
 const controller = new AbortController();
 const pending = new Map();
 let input = "";
-function abort() {
+function abort(reason = "external_abort") {
   if (controller.signal.aborted) return;
+  stopReason ??= reason;
   controller.abort();
   input = "";
   process.stdin.pause();
@@ -51,7 +56,7 @@ process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => {
   if (controller.signal.aborted) return;
   input += chunk;
-  if (Buffer.byteLength(input, "utf8") > 32768) { abort(); return; }
+  if (Buffer.byteLength(input, "utf8") > 32768) { abort("input_oversize"); return; }
   while (input.includes("\n")) {
     const end = input.indexOf("\n");
     const line = input.slice(0, end).replace(/\r$/, ""); input = input.slice(end + 1);
@@ -62,19 +67,22 @@ process.stdin.on("data", chunk => {
       assert(active, "Unknown or stale bridge response");
       if (active.type === "extension_ui_request") {
         assert(response.type === "extension_ui_response" && (typeof response.confirmed === "boolean" || response.cancelled === true));
+        if (response.cancelled === true) stopReason ??= "ui_cancelled";
+        else if (!response.confirmed) stopReason ??= "approval_declined";
         active.resolve(response.cancelled === true ? false : response.confirmed);
       } else {
         assert(response.type === "jev_decision_response");
-        if (response.error) { abort(); return; }
+        if (response.error) { abort("jev_failure"); return; }
         active.resolve(response.decision);
       }
-    } catch { abort(); return; }
+    } catch { abort("protocol_error"); return; }
   }
 });
-process.stdin.on("end", abort);
-process.on("SIGTERM", abort);
-process.on("SIGINT", abort);
-const deadline = setTimeout(abort, 180000);
+process.stdin.on("end", () => abort(input ? "protocol_error" : "input_end"));
+process.on("SIGTERM", () => abort("signal_term"));
+process.on("SIGINT", () => abort("signal_int"));
+let deadline = setTimeout(() => abort("approval_deadline"), OPERATOR_APPROVAL_TIMEOUT_MS);
+emit({ type: "operator_start", approvalTimeoutMs: OPERATOR_APPROVAL_TIMEOUT_MS, executionTimeoutMs: OPERATOR_EXECUTION_TIMEOUT_MS, hardDeadline });
 
 const cwd = await mkdtemp(join(tmpdir(), "jev-live-operator-"));
 const store = new LoopStore();
@@ -95,6 +103,7 @@ let approvalRequests = 0;
 let approvals = 0;
 let declined = false;
 let jevCalls = 0;
+const seenAssessments = new Set();
 let observed;
 const verificationCodes = [];
 const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
@@ -108,13 +117,17 @@ const resourceLoader = new DefaultResourceLoader({
     });
     registerJevLoopCommand({ pi, getStore: () => store, getGeneration: () => 0, isContextCurrent: () => !controller.signal.aborted,
       cancelLoop: runtime.cancelLoop, getStorageScope: () => "memory", getNextFire: () => undefined });
-    pi.registerTool({ name: "jev_decide", label: "Operator JEV bridge", description: "Relay one fixed English fixture to the existing public JEV tool; no backend credentials here.", parameters: Type.Object({}),
+    pi.registerTool({ name: "jev_decide", label: "Operator JEV bridge", description: "Relay the fixed binary assessment and, if unmet, its single-criterion diagnosis to the public JEV tool; no credentials here.", parameters: Type.Object({}),
       async execute(_id, args, signal) {
-        assert.equal(++jevCalls, 1, "No duplicate JEV call or automatic retry");
+        // This fixed policy has one criterion: aggregate plus at most one diagnosis.
+        assert(++jevCalls <= 2, "No extra assessment or automatic retry");
         const serialized = JSON.stringify(args);
+        assert(!seenAssessments.has(serialized), "No duplicate assessment or automatic retry");
+        seenAssessments.add(serialized);
         assert(!serialized.includes(cwd) && !serialized.includes(userGoal) && !serialized.includes(process.execPath));
-        observed = await request("jev_decision_request", { arguments: args }, signal);
-        return { content: [{ type: "text", text: JSON.stringify(observed) }], details: observed };
+        const decision = await request("jev_decision_request", { arguments: args }, signal);
+        if (jevCalls === 1) observed = decision;
+        return { content: [{ type: "text", text: JSON.stringify(decision) }], details: decision };
       },
     });
     pi.registerTool({ name: "FixtureWork", label: "Fixed fixture work", description: "Create only the readiness marker inside this owned temporary fixture.", parameters: Type.Object({}),
@@ -136,8 +149,15 @@ try {
     confirm: async (title, message, options) => {
       approvalRequests++;
       const accepted = await request("extension_ui_request", { method: "confirm", title, message }, options?.signal);
-      if (accepted) approvals++;
-      else declined = true;
+      if (accepted) {
+        const approvedAt = Date.now();
+        if (controller.signal.aborted || approvedAt >= hardDeadline) { abort("approval_deadline"); return false; }
+        approvals++;
+        if (approvals === 1) {
+          clearTimeout(deadline);
+          deadline = setTimeout(() => abort("execution_deadline"), operatorExecutionDeadline(hardDeadline, approvedAt) - approvedAt);
+        }
+      } else declined = true;
       return accepted;
     }, notify() {}, setStatus() {}, setWidget() {},
   } });
@@ -168,16 +188,18 @@ try {
   finally { unsubscribe(); controller.signal.removeEventListener("abort", canceled); }
   const passed = approvals === 1 && approvalRequests === 1 && !store.get("1") && jevCalls === 1
     && JSON.stringify(verificationCodes) === "[7,0]" && observed?.status === "recommended" && observed.reply?.choice === "met";
+  stopReason ??= passed ? "completed" : declined ? "approval_declined" : "assessment_unmet";
   summary = { type: "operator_result", status: passed ? "passed" : declined ? "approval_declined" : "held", approvalRequests, approvals,
     verificationCodes, jevCalls, verdict: observed?.reply?.choice, model: observed?.reply?.model, usage: observed?.reply?.usage,
     fixture: "readiness-repair-v1", sdkVersion: VERSION, nodeVersion: process.version,
     primaryModel: "synthetic", physicalTerminalAcceptance: false };
   process.exitCode = passed ? 0 : 1;
 } catch {
+  stopReason ??= "execution_failure";
   summary = { type: "operator_result", status: "failed", approvalRequests, approvals, verificationCodes, jevCalls, noAutomaticRetry: true };
   process.exitCode = 1;
 } finally {
-  abort();
+  abort("cleanup");
   await session?.abort();
   await runtime?.shutdown();
   session?.dispose();
@@ -185,4 +207,4 @@ try {
   process.stdin.destroy();
   await rm(cwd, { recursive: true, force: true });
 }
-emit(summary);
+emit({ ...summary, stopReason, approvalTimeoutMs: OPERATOR_APPROVAL_TIMEOUT_MS, executionTimeoutMs: OPERATOR_EXECUTION_TIMEOUT_MS, hardDeadline, elapsedMs: performance.now() - startedAt });

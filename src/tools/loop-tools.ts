@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { budgetBounds, budgetPacket } from "../adaptive-budget.js";
 import type { verifyCompletion } from "../completion-verifier.js";
 import { COMPLETION_EVIDENCE_LIMIT, CompletionPolicySchema, validateCompletionPolicy } from "../jev-completion.js";
 import { parseLoopDurationMs } from "../loop-expiry.js";
@@ -30,13 +31,14 @@ interface LoopStoreLike extends CompletionStore {
     completion?: LoopEntry["completion"];
     completionCwd?: string;
     completionExpiresAt?: number;
+    adaptiveBudget?: LoopEntry["adaptiveBudget"];
     dynamic?: Partial<NonNullable<LoopEntry["dynamic"]>>;
   }): LoopEntry;
   pause(id: string, kind?: LoopPauseKind, reason?: string, expected?: Pick<LoopEntry, "createdAt" | "completionId">): LoopEntry | undefined;
   continueDynamic(
     id: string,
     fields: { prompt?: string; dynamic: Partial<NonNullable<LoopEntry["dynamic"]>> },
-    expected?: { status: LoopEntry["status"]; iteration: number; updatedAt: number },
+    expected?: { status: LoopEntry["status"]; iteration: number; updatedAt: number; completionSnapshot?: string },
   ): LoopEntry | undefined;
   stopDynamic(
     id: string,
@@ -131,6 +133,7 @@ interface LoopUpdateParams {
   metrics?: string;
   doneCriteria?: string;
   completionEvidence?: string;
+  budgetEvidence?: string;
   nextInterval?: string;
   prompt?: string;
 }
@@ -162,7 +165,7 @@ function continueDynamicLoop(
   entry: LoopEntry & { dynamic: NonNullable<LoopEntry["dynamic"]> },
   store: LoopStoreLike,
   triggerSystem: TriggerSystemLike,
-): { applied: boolean; message: string } {
+): { applied: false; message: string } | { applied: true; message: string; entry: LoopEntry } {
   if (Date.now() >= entry.expiresAt) {
     return { applied: false, message: `Loop #${params.id} has expired; recreate it explicitly if work remains.` };
   }
@@ -189,13 +192,14 @@ function continueDynamicLoop(
     status: entry.status,
     iteration: entry.dynamic.iteration ?? 0,
     updatedAt: entry.updatedAt,
+    ...(entry.completion ? { completionSnapshot: JSON.stringify(entry) } : {}),
   });
   if (!updated) {
     return { applied: false, message: `Loop #${params.id} changed while the update was applied; inspect LoopList and retry.` };
   }
   triggerSystem.remove(params.id);
   triggerSystem.add(updated);
-  return { applied: true, message: formatDynamicUpdateResult(params.id, updated.dynamic?.iteration, nextWakeAt, resumed) };
+  return { applied: true, message: formatDynamicUpdateResult(params.id, updated.dynamic?.iteration, nextWakeAt, resumed), entry: updated };
 }
 
 function stopDynamicLoop(
@@ -220,7 +224,7 @@ function stopDynamicLoop(
   };
 }
 
-export function registerLoopTools(options: LoopToolsOptions) {
+export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof createJevLoopRuntime> & { cancelLoop(entry: LoopEntry, action?: "pause" | "delete"): Promise<boolean> } {
   const completionRuntime = createJevLoopRuntime(options);
   const {
     pi,
@@ -342,6 +346,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
         const store = getStore();
         let approved: Awaited<ReturnType<typeof completionRuntime.setup>> | undefined;
         let completionExpiresAt: number | undefined;
+        let adaptiveBudget: LoopEntry["adaptiveBudget"];
         if (completion !== undefined) {
           validateCompletionPolicy(completion);
           if (trigger.type !== "dynamic" || recurring === false || autoTask || taskBacklog || !Number.isSafeInteger(maxFires) || maxFires! < 1) {
@@ -349,8 +354,13 @@ export function registerLoopTools(options: LoopToolsOptions) {
           }
           completionExpiresAt = store.previewExpiresAt?.(expiresIn);
           if (completionExpiresAt === undefined) throw new Error("Completion storage unavailable; use a supported LoopStore.");
-          approved = await completionRuntime.setup(ctx, completion, maxFires!, completionExpiresAt, signal);
+          if (completion.budgetRange && expiresIn === undefined) throw new Error("Adaptive budgets require an explicit finite expiresIn upper envelope.");
+          const adaptive = completion.budgetRange ? budgetBounds(completion, maxFires!, parseLoopDurationMs(expiresIn!)) : undefined;
+          if (adaptive) budgetPacket(completion, adaptive, undefined, 0, "Initial allocation after exact native range approval.", "fires", adaptive.minFires, adaptive.maxFires);
+          approved = await completionRuntime.setup(ctx, completion, { maxFires: maxFires!, expiresAt: completionExpiresAt, adaptive }, signal);
           approved.check();
+          completionExpiresAt = approved.expiresAt;
+          adaptiveBudget = approved.adaptiveBudget;
         }
         entry = store.create(trigger, prompt, {
           recurring: taskBacklog ? true : recurring ?? (inferred !== "event"),
@@ -362,6 +372,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
           completion,
           completionCwd: completion ? ctx.cwd : undefined,
           completionExpiresAt,
+          adaptiveBudget,
           dynamic: trigger.type === "dynamic"
             ? { goal: prompt, iteration: 0 }
             : undefined,
@@ -379,7 +390,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
       }
 
       getTriggerSystem().add(entry);
-      if (trigger.type === "dynamic") onDynamicLoopActivated?.(entry);
+      if (trigger.type === "dynamic" && entry.status === "active") onDynamicLoopActivated?.(entry);
 
       if (trigger.type === "event" && trigger.source === "monitor:done" && trigger.filter) {
         try {
@@ -406,7 +417,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
         `Loop #${entry.id} created: ${entry.prompt.slice(0, 60)}\n` +
         `Trigger: ${triggerDesc}\n` +
         `Recurring: ${entry.recurring}\n` +
-        (trigger.type === "dynamic" ? "Wake: when idle (first wake queued now)\n" : "") +
+        (trigger.type === "dynamic" ? entry.status === "active" ? "Wake: when idle (first wake queued now)\n" : "Wake: held at operating budget checkpoint; no work queued\n" : "") +
         (entry.autoTask ? "Auto-create task: enabled\n" : "") +
         (entry.taskBacklog ? "Backlog worker: enabled\n" : "") +
         (bootstrapped ? "Backlog: initial wake queued for existing pending tasks\n" : "") +
@@ -452,12 +463,13 @@ export function registerLoopTools(options: LoopToolsOptions) {
           ? getScheduler().nextFire(entry.id)
           : undefined;
         const activity = entry.workflow ? deriveWorkflowActivity(entry, now) : undefined;
-        const statusIcon = entry.status === "active" ? "*" : entry.status === "paused" ? "-" : "x";
-        let line = `${statusIcon} #${entry.id} [${entry.status}] ${entry.prompt.slice(0, 60)}`;
+        const expired = now >= entry.expiresAt;
+        const statusIcon = expired ? "x" : entry.status === "active" ? "*" : "-";
+        let line = `${statusIcon} #${entry.id} [${expired ? "expired" : entry.status}] ${entry.prompt.slice(0, 60)}`;
         line += ` (${triggerDesc})`;
         if (activity) line += ` [activity:${activity.status} ${formatCompactWorkflowDuration(activity.activityMs)}]`;
         line += ` expiresAt: ${new Date(entry.expiresAt).toISOString()}`;
-        if (nextFire) {
+        if (nextFire && !expired) {
           const remaining = Math.max(0, nextFire - now);
           line += ` next: ${formatRemaining(remaining)}`;
         }
@@ -467,13 +479,14 @@ export function registerLoopTools(options: LoopToolsOptions) {
           line += ` age: ${formatRemaining(Math.max(0, now - entry.createdAt))}`;
         }
         if (entry.pause) line += ` [pause:${entry.pause.kind}]`;
+        if (entry.adaptiveBudget) line += ` [operating:${entry.fireCount ?? 0}/${entry.adaptiveBudget.fireLimit} fires until ${new Date(entry.adaptiveBudget.expiresAt).toISOString()}] [hard:${entry.maxFires} total until ${new Date(entry.expiresAt).toISOString()}] [budget revision:${entry.adaptiveBudget.revision} assessed-fire:${entry.adaptiveBudget.lastReviewedFireCount}; stored intent, not restored authority]`;
         if (entry.autoTask) line += " [auto-task]";
         if (entry.taskBacklog) line += " [backlog-worker]";
         if (entry.completion) {
           line += ` [JEV completion] goal: ${entry.completion.goal}`;
           line += ` criteria: ${JSON.stringify(entry.completion.criteria)}`;
           line += ` verifier coverage: ${entry.completion.verification.description}`;
-          line += " · Complete through LoopUpdate with English completionEvidence; deletion is cancellation.";
+          line += expired ? " · Expired: inspect retained intent; execution and completion are unavailable." : " · Complete through LoopUpdate with English completionEvidence; deletion is cancellation.";
         }
         if (entry.orchestration) {
           line += ` [orchestration:${orchestrationStatusLabel(entry.orchestration.status)}]`;
@@ -499,7 +512,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
         kind: "loop",
         action: "list",
         tone: "info",
-        summary: `${kinds.join(" · ")} · ${loops.filter((entry) => entry.status === "active").length} active`,
+        summary: `${kinds.join(" · ")} · ${loops.filter((entry) => entry.status === "active" && now < entry.expiresAt).length} active`,
         expanded: displayRows(lines, workflowCount > 0 ? 16 : 8),
       }));
     },
@@ -510,7 +523,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
     label: "LoopUpdate",
     renderCall: renderToolCall("Loop", (args) => `update · #${String(toolArg(args, "id") ?? "?")} · ${String(toolArg(args, "status") ?? "continue")}`),
     renderResult: renderToolResult,
-    description: 'Update a dynamic loop once per wake. Persist before notifying: continue with state/metrics while work remains, even empty/unchanged; completed only when done; paused only for blockers/required authority. nextInterval delays a wake; never use LoopDelete to finish an iteration. JEV needs English completionEvidence, fixed verification and supported advice; no secrets/source/logs.',
+    description: 'Update a dynamic loop; never use LoopDelete to finish an iteration. Continue while work remains; pause only for real blockers. JEV unmet diagnoses gaps and continues within original bounds: inspect, repair or collect new evidence. Completed needs English completionEvidence, fixed verification and supported met; no private artifacts. nextInterval delays a wake.',
     parameters: Type.Object({
       id: Type.String({ description: "Dynamic loop ID to update" }),
       status: Type.String({ description: "continue, completed, or paused", enum: ["continue", "completed", "paused"] }),
@@ -518,6 +531,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
       metrics: Type.Optional(Type.String({ description: "Current metrics/check results" })),
       doneCriteria: Type.Optional(Type.String({ description: "Definition of done for the dynamic loop" })),
       completionEvidence: Type.Optional(Type.String({ minLength: 1, maxLength: COMPLETION_EVIDENCE_LIMIT, description: "Non-sensitive English semantic summary for opted-in completion only; untrusted evidence, not a success flag" })),
+      budgetEvidence: Type.Optional(Type.String({ minLength: 1, maxLength: COMPLETION_EVIDENCE_LIMIT, description: "Optional separate non-sensitive English work summary for adaptive budget advice; never raw state, metrics or private artifacts" })),
       nextInterval: Type.Optional(Type.String({ description: "When to wake next, e.g. 3m, 30s, 1h" })),
       prompt: Type.Optional(Type.String({ description: "Optional updated goal/prompt text" })),
     }),
@@ -525,7 +539,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
       const store = getStore();
       const triggerSystem = getTriggerSystem();
       const generation = options.getGeneration?.();
-      const entry = store.get(params.id);
+      let entry = store.get(params.id);
       if (!entry) {
         return Promise.resolve(textResult(`Loop #${params.id} not found`, {
           kind: "loop", action: "update", tone: "error", summary: `Loop #${params.id} not found`, expanded: ["Use LoopList to find valid loop IDs."],
@@ -555,22 +569,55 @@ export function registerLoopTools(options: LoopToolsOptions) {
           return reject("Completion goal/policy is immutable; explicitly cancel and recreate with approval if it must change.");
         }
         if (params.status === "continue" && atMaxFires(entry)) return reject("Controller fire cap exhausted; inspect or cancel, never continue/resume. Verified final completion remains permitted before expiry.");
+        if (params.status === "continue" && entry.adaptiveBudget) {
+          const wake = resolveNextWakeAt(params.nextInterval);
+          if (wake.error || wake.nextWakeAt !== undefined && wake.nextWakeAt >= entry.expiresAt) return reject(wake.error ?? "nextInterval exceeds the hard envelope.");
+          const budget = await completionRuntime.adjustBudget(structuredClone(entry), params.budgetEvidence, ctx, signal);
+          if (!budget.entry) return reject(budget.message);
+          budget.check?.();
+          if (store !== getStore() || generation !== options.getGeneration?.()) return reject("Context changed after budget review; inspect current state.");
+          entry = budget.entry;
+          if (entry.status !== "active") {
+            triggerSystem.remove(entry.id); updateWidget();
+            return textResult(budget.message, { kind: "loop", action: "update", tone: "warning", summary: "Operating budget checkpoint", expanded: [budget.message] });
+          }
+        }
         if (params.status === "completed") {
           const result = await completionRuntime.review(structuredClone(entry), params.completionEvidence, ctx, signal);
+          const withReceipt = (output: ReturnType<typeof textResult>) => result.receipt ? { ...output, details: { ...output.details, completionReview: result.receipt } } : output;
           if (result.completed) { triggerSystem.remove(entry.id); updateWidget(); }
-          const output = textResult(result.message, { kind: "loop", action: "update", tone: result.completed ? "success" : "warning", summary: result.completed ? "Verified completion" : "Completion held", expanded: [result.message] });
+          if (result.reworkScope && !atMaxFires(entry)) {
+            result.reworkScope();
+            if (store !== getStore() || generation !== options.getGeneration?.()) return withReceipt(reject("Session/store changed before rework; inspect LoopList in the current session."));
+            if (entry.adaptiveBudget) {
+              const budget = await completionRuntime.adjustBudget(structuredClone(entry), params.budgetEvidence, ctx, signal);
+              if (!budget.entry) return withReceipt(reject(`${result.message}\n${budget.message}`));
+              budget.check?.();
+              if (store !== getStore() || generation !== options.getGeneration?.()) return withReceipt(reject("Context changed after adaptive rework selection; inspect current state."));
+              entry = budget.entry;
+              if (entry.status !== "active") {
+                triggerSystem.remove(entry.id); updateWidget();
+                return withReceipt(textResult(`${result.message}\n${budget.message}`, { kind: "loop", action: "update", tone: "warning", summary: "Operating budget checkpoint", expanded: [result.message, budget.message] }));
+              }
+            }
+            const continued = continueDynamicLoop({ id: entry.id, status: "continue", state: result.message, metrics: params.metrics ?? entry.dynamic?.metrics }, entry as LoopEntry & { dynamic: NonNullable<LoopEntry["dynamic"]> }, store, triggerSystem);
+            if (!continued.applied) return withReceipt(reject(`${result.message}\n${continued.message}`));
+            updateWidget();
+            return withReceipt(textResult(`${result.message}\n${continued.message}`, { kind: "loop", action: "update", tone: "warning", summary: "Evidence diagnosed; goal continued", expanded: [result.message, continued.message] }));
+          }
+          const output = withReceipt(textResult(result.message, { kind: "loop", action: "update", tone: result.completed ? "success" : "warning", summary: result.completed ? "Verified completion" : "Completion held", expanded: [result.message] }));
           return "askUser" in result && result.askUser ? { ...output, details: { ...output.details, askUser: result.askUser } } : output;
         }
       }
       const dynamicEntry = entry as LoopEntry & { dynamic: NonNullable<LoopEntry["dynamic"]> };
-      const outcome = params.status === "continue"
-        ? continueDynamicLoop(params, dynamicEntry, store, triggerSystem)
-        : stopDynamicLoop(params, dynamicEntry, store, triggerSystem);
+      const continued = params.status === "continue" ? continueDynamicLoop(params, dynamicEntry, store, triggerSystem) : undefined;
+      const outcome = continued ?? stopDynamicLoop(params, dynamicEntry, store, triggerSystem);
       if (!outcome.applied) {
         return Promise.resolve(textResult(outcome.message, {
           kind: "loop", action: "update", tone: "error", summary: `Loop #${params.id} update rejected`, expanded: [outcome.message],
         }));
       }
+      if (entry.completion && continued?.applied) completionRuntime.recordProgress(entry, continued.entry);
       if (entry.completion && params.status === "paused") await completionRuntime.cancel(entry);
       const message = outcome.message;
       if (store === getStore() && generation === options.getGeneration?.()) updateWidget();
@@ -586,7 +633,7 @@ export function registerLoopTools(options: LoopToolsOptions) {
         tone,
         summary,
         expanded: params.status === "continue"
-          ? [`State: ${params.state ?? entry.dynamic.state ?? "unchanged"}`, `Next wake: ${params.nextInterval ?? "when idle"}`]
+          ? [`State: ${params.state ?? entry.dynamic?.state ?? "unchanged"}`, `Next wake: ${params.nextInterval ?? "when idle"}`]
           : [],
       }));
     },

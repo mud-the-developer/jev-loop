@@ -273,8 +273,14 @@ export function createNotificationRuntime(options: NotificationRuntimeOptions): 
       if (dynamic?.state) lines.push(`State: ${dynamic.state}`);
       if (dynamic?.metrics) lines.push(`Metrics: ${dynamic.metrics}`);
       if (dynamic?.doneCriteria) lines.push(`Done criteria: ${dynamic.doneCriteria}`);
-      const completion = getLoop?.(loopId)?.completion;
+      const controller = getLoop?.(loopId);
+      const completion = controller?.completion;
       if (completion) {
+        if (controller.adaptiveBudget) lines.push(
+          `Adaptive operating allocation: ${controller.fireCount ?? 0}/${controller.adaptiveBudget.fireLimit} fires, until ${new Date(controller.adaptiveBudget.expiresAt).toISOString()}; hard envelope ${controller.maxFires} total until ${new Date(controller.expiresAt).toISOString()}.`,
+          "After this fire, LoopUpdate reviews the operating allocation using separate English budgetEvidence or safe numeric facts. Never send local state/metrics as budget evidence; a budget decision is not completion or new authority.",
+          Date.now() >= controller.adaptiveBudget.expiresAt ? "The operating time checkpoint elapsed. Before further work, use LoopUpdate continue for a budget-only in-envelope review; never reset the original hard start/deadline." : "Hard limits and all permission/cancellation boundaries remain unchanged.",
+        );
         lines.push(
           `JEV completion goal: ${completion.goal}`,
           `Completion criteria: ${JSON.stringify(completion.criteria)}`,
@@ -282,7 +288,7 @@ export function createNotificationRuntime(options: NotificationRuntimeOptions): 
           'Use LoopUpdate status="completed" with separate non-sensitive English completionEvidence to request fixed verification and JEV review. Do not call JEV separately or use LoopDelete to claim completion; deletion is explicit cancellation.',
           data.fireLimitReached
             ? "The fire cap is exhausted: no continue/resume. This final iteration may submit verified completion before expiry; reaching the cap is not success."
-            : "Persist unfinished work with LoopUpdate continue within the original budget. Unmet means rework; unknown needs permitted additional evidence, never success.",
+            : "Unmet, including missing evidence, is diagnosed and automatically continued within the original budget. Inspect the listed criterion gaps, find the actual missing fact or failing behavior with authorized local checks, then collect or repair evidence now. Do not pause solely for uncertainty or repeat unchanged advice; only real authority/cancellation/expiry/budget blockers stop work. Persist genuine progress with LoopUpdate continue.",
         );
         return lines.join("\n");
       }

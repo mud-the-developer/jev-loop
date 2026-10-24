@@ -34,6 +34,7 @@ export class MonitorManager {
   private platform: NodeJS.Platform;
   private taskkillSpawn: SpawnFn;
   private shutdownPromise: Promise<void> | undefined;
+  private pendingReaps = new Set<Promise<void>>();
   private shuttingDown = false;
 
   constructor(
@@ -403,7 +404,7 @@ export class MonitorManager {
       this.clearExitGrace(bp);
     }
     const running = processes.filter((bp) => bp.entry.status === "running");
-    const shutdown = Promise.allSettled(running.map((bp) => this.stop(bp.entry.id)))
+    const shutdown = Promise.allSettled([...running.map((bp) => this.stop(bp.entry.id)), ...this.pendingReaps])
       .then(() => {
         for (const bp of processes) {
           if (bp.progressChangeTimer) clearTimeout(bp.progressChangeTimer);
@@ -424,6 +425,16 @@ export class MonitorManager {
     const bp = this.processes.get(id);
     if (!bp || bp.entry.status !== "running") return false;
 
+    // Publish reaping before stop events can synchronously trigger shutdown.
+    const reaped = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.signalProcessTree(bp, "SIGKILL");
+        resolve();
+      }, 5000);
+      bp.proc.once("close", () => { clearTimeout(timer); resolve(); });
+    });
+    this.pendingReaps.add(reaped);
+    void reaped.then(() => { this.pendingReaps.delete(reaped); });
     this.clearDeadline(bp);
     this.clearExitGrace(bp);
     // Signal first so a failing listener can never leave the process running.
@@ -459,17 +470,7 @@ export class MonitorManager {
       this.runCallbacks(completionCallbacks, bp.entry);
     }
 
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        this.signalProcessTree(bp, "SIGKILL");
-        resolve();
-      }, 5000);
-
-      bp.proc.on("close", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    });
+    await reaped;
 
     this.notifyTerminal(bp, bp.entry);
     bp.completionCallbacks = [];

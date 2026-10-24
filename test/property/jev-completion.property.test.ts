@@ -54,6 +54,25 @@ describe("JEV completion ownership and budget properties", () => {
     }), propertyOptions());
   });
 
+  it("full continuation snapshots reject generated same-time changes and allow fresh progress", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    fc.assert(fc.property(fc.array(fc.constantFrom("pause-resume", "progress"), { minLength: 1, maxLength: 30 }), actions => {
+      const store = new LoopStore();
+      const entry = structuredClone(store.create({ type: "dynamic" }, "User goal", { recurring: true, maxFires: 5, completion, completionCwd: process.cwd() }));
+      const expected = { status: entry.status, iteration: entry.dynamic!.iteration, updatedAt: entry.updatedAt, completionSnapshot: JSON.stringify(entry) };
+      for (const action of actions) {
+        if (action === "pause-resume") { store.pause(entry.id); store.resume(entry.id); }
+        else store.continueDynamic(entry.id, { dynamic: { state: "Peer progress", iteration: 0 } });
+      }
+      const before = structuredClone(store.get(entry.id)!);
+      expect(store.continueDynamic(entry.id, { dynamic: { state: "Stale continuation", iteration: 1 } }, expected)).toBeUndefined();
+      expect(store.get(entry.id)).toEqual(before);
+      const fresh = { status: before.status, iteration: before.dynamic!.iteration, updatedAt: before.updatedAt, completionSnapshot: JSON.stringify(before) };
+      expect(store.continueDynamic(entry.id, { dynamic: { state: "Fresh observation", iteration: 1 } }, fresh)).toBeDefined();
+      expect(store.get(entry.id)).toMatchObject({ completion, maxFires: entry.maxFires, expiresAt: entry.expiresAt, fireCount: entry.fireCount });
+    }), propertyOptions());
+  });
+
   it("wrong creation identity cannot pause/cancel work or change its state", () => {
     vi.spyOn(Date, "now").mockReturnValue(1000);
     fc.assert(fc.property(fc.string({ maxLength: 32 }), suffix => {

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { vi } from "vitest";
 import { LoopStore } from "../../src/store.js";
 import { registerLoopTools } from "../../src/tools/loop-tools.js";
@@ -10,15 +10,14 @@ export const policy = {
 };
 export const evidence = "The required behavior was exercised and all checks passed.";
 export const candidates = [
-  { id: "met", title: "All criteria met", description: "Every criterion is supported by adequate evidence and the required verification passed." },
-  { id: "unmet", title: "Criteria unmet", description: "At least one criterion is demonstrably unmet or required verification failed." },
-  { id: "unknown", title: "Insufficient evidence", description: "Evidence is missing, conflicting, or inadequate for any criterion. Exit zero alone proves no extra facts." },
+  { id: "met", title: "Assessment met", description: "Every criterion in the requested assessment has adequate observed evidence and the required verification passed." },
+  { id: "unmet", title: "Assessment not met", description: "A criterion in the requested assessment is unmet or its evidence is missing, conflicting or insufficient. An unobserved result is not success." },
 ];
 export function recommendation(choice = "met") {
   return {
     status: "recommended", advisoryOnly: true,
     option: candidates.find(option => option.id === choice),
-    reply: { choice, confidence: 0.8, probabilities: Object.fromEntries(candidates.map(option => [option.id, option.id === choice ? 0.8 : 0.1])), model: "fixture", usage: { inputTokens: 1, outputTokens: 1 } },
+    reply: { choice, confidence: 0.8, probabilities: Object.fromEntries(candidates.map(option => [option.id, option.id === choice ? 0.8 : 0.2])), model: "fixture", usage: { inputTokens: 1, outputTokens: 1 } },
   };
 }
 export function outcome(details: unknown, isError = false) {
@@ -42,7 +41,7 @@ export function fixture(path?: string) {
     ui: { confirm }, executeTool, tools: [{ name: "jev_decide" }],
   } as unknown as ExtensionToolContext;
   const pi = {
-    registerTool: (tool: ToolDefinition<any>) => toolMap.set(tool.name, tool), exec,
+    registerTool: (tool: ToolDefinition<any>) => toolMap.set(tool.name, tool), exec, events: createEventBus(),
     getAllTools: () => ctx.tools,
     on: (event: string, handler: (...args: any[]) => any) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
   } as unknown as ExtensionAPI;

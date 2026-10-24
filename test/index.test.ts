@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import extension from "../src/index.js";
+import { MonitorManager } from "../src/monitor-manager.js";
 import { TASKS_RPC } from "../src/rpc/channels.js";
 import { resolveLoopStorePath, resolveTaskStorePath } from "../src/runtime/scope.js";
 import { CronScheduler } from "../src/scheduler.js";
@@ -2663,6 +2664,7 @@ describe("LoopDelete tool wrapper", () => {
 });
 
 describe("monitor tool wrappers", () => {
+  const managers = new Set<MonitorManager>();
   let cwd: string;
   let originalCwd: string;
   let originalScope: string | undefined;
@@ -2673,9 +2675,18 @@ describe("monitor tool wrappers", () => {
     originalScope = process.env.PI_LOOP_SCOPE;
     cwd = mkdtempSync(join(tmpdir(), "pi-loop-mon-"));
     process.chdir(cwd);
+    const create = MonitorManager.prototype.create;
+    vi.spyOn(MonitorManager.prototype, "create").mockImplementation(function (this: MonitorManager, ...args) {
+      managers.add(this); return create.apply(this, args);
+    });
   });
 
   afterEach(async () => {
+    // Windows keeps a child cwd locked until its owned process has reaped.
+    const shutdown = Promise.all([...managers].map(manager => manager.shutdown()));
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(5000);
+    await shutdown;
+    managers.clear(); vi.restoreAllMocks();
     process.chdir(originalCwd);
     if (originalScope === undefined) delete process.env.PI_LOOP_SCOPE;
     else process.env.PI_LOOP_SCOPE = originalScope;
@@ -2923,19 +2934,17 @@ describe("monitor tool wrappers", () => {
       workflowId,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    for (const handler of extensionHandlers.get("agent_end") ?? []) {
-      await handler(null, createCtx());
-    }
-    await flushAsync();
-
-    expect(emittedEvents).toContainEqual(expect.objectContaining({
+    await vi.waitFor(() => expect(emittedEvents).toContainEqual(expect.objectContaining({
       name: "loop:fire",
       payload: expect.objectContaining({
         loopId: workflowId,
         monitorOutcome: expect.objectContaining({ monitorId: "1", status: "stopped", stopReason: "timeout" }),
       }),
-    }));
+    })), { timeout: 7000 });
+    for (const handler of extensionHandlers.get("agent_end") ?? []) {
+      await handler(null, createCtx());
+    }
+    await flushAsync();
     expect(sentCustomMessages).toHaveLength(1);
     expect((sentCustomMessages[0].message as { content: string }).content).toContain(
       "Monitor #1 outcome: status=stopped; exitCode=unavailable; stopReason=timeout; outputLines=0.",
@@ -3239,12 +3248,14 @@ describe("monitor tool wrappers", () => {
       timeout: 50,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    expect(sentCustomMessages).toHaveLength(1);
+    // Terminal notifications follow process-tree cleanup, not a fixed OS delay.
+    await vi.waitFor(() => expect(sentCustomMessages).toHaveLength(1), { timeout: 7000 });
     expect((sentCustomMessages[0].message as { content: string }).content).toContain(
       "Monitor #1 became stale",
     );
+    expect((sentCustomMessages[0].message as { content: string }).content).toContain("status=stopped");
+    expect((sentCustomMessages[0].message as { content: string }).content).toContain("stopReason=timeout");
+    await flushAsync(); expect(sentCustomMessages).toHaveLength(1);
   }, 10000);
 
   it("does not deliver monitor completion wake if the completion loop is deleted", async () => {

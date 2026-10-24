@@ -2,7 +2,7 @@
 
 ## Purpose
 
-jev-loop is an independent Pi extension derived from pi-loop 0.7.18, adding English-only JEV inputs, scoped approval, and evidence-gated completion to scheduled/event-driven re-wakes, workflows, tasks, subagent orchestration, and monitoring. The public package is `jev-loop`, and development targets `main`. Preserve the upstream MIT attribution and Git history. Existing `PI_LOOP_*` configuration, store layouts, and RPC wire identifiers remain compatible; do not rename them as a branding edit. This source-only development package is private and has no automatic release workflow; publishing still requires explicit user authorization.
+jev-loop is an independent Pi extension derived from pi-loop 0.7.18, adding English-only JEV inputs, scoped approval, and evidence-gated completion to scheduled/event-driven re-wakes, workflows, tasks, subagent orchestration, and monitoring. The public package is `jev-loop`, and development targets `main`. Preserve the upstream MIT attribution and Git history. Existing `PI_LOOP_*` configuration, store layouts, and RPC wire identifiers remain compatible; do not rename them as a branding edit. GitHub release packages retain the npm private guard and have no automatic release workflow; publishing still requires explicit user authorization.
 
 Stack: strict TypeScript 7, ES2022, TypeBox, Vitest, and Biome.
 

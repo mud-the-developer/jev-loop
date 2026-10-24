@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { build } from "esbuild";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const rootDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -65,6 +65,9 @@ try {
   assert(paths.includes("docs/RUNTIME_CONTINUITY.md"), "tarball must include the linked runtime continuity guide");
   assert(paths.includes("docs/JEV_LOOPS.md"), "tarball must include the linked JEV loop contract");
   assert(!paths.some((path) => path.startsWith("src/")), "tarball must not publish src/");
+  for (const [, target] of readFileSync(join(rootDirectory, "README.md"), "utf8").matchAll(/\]\(([^)\s]+)\)/g)) {
+    if (target.startsWith(".")) assert(paths.includes(posix.normalize(target.split("#")[0])), `README links an unshipped file: ${target}`);
+  }
 
   const root = await import("jev-loop");
   const api = await import("jev-loop/api");

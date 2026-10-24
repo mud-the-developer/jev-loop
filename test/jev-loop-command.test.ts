@@ -157,7 +157,7 @@ describe.skipIf(process.platform === "win32")("goal-first POSIX command acceptan
     expect(h.sentUserMessages).toHaveLength(1);
     const request = h.sentUserMessages[0]!;
     expect(request.message).toContain(JSON.stringify({ goal }));
-    for (const part of ["English", "LoopCreate", "completion", "maxFires=5", 'expiresIn="1h"', "NOT execution approval", "ordered workflow", "LoopUpdate", "completionEvidence"]) expect(request.message).toContain(part);
+    for (const part of ["English", "LoopCreate", "completion", "budgetRange", "minFires", "minExpiresIn", "HARD upper bounds", "NOT execution approval", "ordered workflow", "LoopUpdate", "completionEvidence"]) expect(request.message).toContain(part);
     expect(request.options).toEqual({ expandPromptTemplates: false });
     expect(h.confirm).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled(); expect(await h.listed()).toContain("No loops");
   });
