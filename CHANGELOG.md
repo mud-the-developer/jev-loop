@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.3](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.3) (2026-10-24)
+
+### Security
+
+* **development:** override the SDK's vulnerable undici pin with compatible 8.12.3 while retaining Pi 1.2.0 and its API. This repository override does not update a separately installed Pi host.
+
+### Bug Fixes
+
+* **dashboard:** honor detail focus and keyboard scrolling in short terminals without requiring a resize; preserve summary budgets, exit controls and read-only state. Size PageUp/PageDown to the visible detail rows so small pages cannot skip unseen text.
+
 ## [0.1.2](https://github.com/mud-the-developer/jev-loop/releases/tag/v0.1.2) (2026-10-23)
 
 ### Bug Fixes

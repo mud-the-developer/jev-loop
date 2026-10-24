@@ -11,7 +11,7 @@ describe("standalone jev-loop GitHub release", () => {
   it("has its own released package identity while retaining the npm publication guard", () => {
     const manifest = json("../package.json");
     expect(manifest.name).toBe("jev-loop");
-    expect(manifest.version).toBe("0.1.2");
+    expect(manifest.version).toBe("0.1.3");
     expect(manifest.private).toBe(true);
     expect(manifest.repository.url).toBe("https://github.com/mud-the-developer/jev-loop.git");
   });
@@ -26,12 +26,20 @@ describe("standalone jev-loop GitHub release", () => {
     expect(lock.packages[""].devDependencies).toEqual(manifest.devDependencies);
   });
 
+  it("pins the compatible undici security patch without downgrading the development SDK", () => {
+    const manifest = json("../package.json"); const lock = json("../package-lock.json");
+    expect(manifest.devDependencies["@earendil-works/pi-coding-agent"]).toBe("1.2.0");
+    expect(manifest.overrides?.undici).toBe("8.12.3");
+    expect(lock.packages["node_modules/undici"].version).toBe("8.12.3");
+    expect(lock.packages["node_modules/@earendil-works/pi-coding-agent"].version).toBe("1.2.0");
+  });
+
   it("documents a pinned release artifact, checksum validation and tagged source installation", () => {
     const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
-    expect(readme).toContain("releases/download/v0.1.2/jev-loop-0.1.2.tgz");
+    expect(readme).toContain("releases/download/v0.1.3/jev-loop-0.1.3.tgz");
     expect(readme).toContain("sha256sum -c SHA256SUMS");
-    expect(readme).toContain("--branch v0.1.2");
-    expect(readme).toContain("blob/v0.1.2/AGENTS.md");
+    expect(readme).toContain("--branch v0.1.3");
+    expect(readme).toContain("blob/v0.1.3/AGENTS.md");
     expect(readme).not.toContain("source-only and private");
   });
 

@@ -31,6 +31,28 @@ it.each([48, 80, 120])("keeps selected identity, budget and exit visible in a sh
   expect(lines.length).toBeLessThanOrEqual(12); expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
   expect(text).toContain("#1"); expect(text).toContain("fires"); expect(text).toContain("Esc close"); expect(text).toContain("Resize");
 });
+it.each([{ width: 48, rows: 12 }, { width: 48, rows: 16 }, { width: 80, rows: 24 }])("opens and scrolls details within a $width-column, $rows-row terminal", ({ width, rows }) => {
+  const h = setup(3, rows); const before = structuredClone(h.store.list()); const height = Math.max(8, Math.min(34, rows - 4));
+  h.view.render(width); h.view.handleInput("\t");
+  let lines = h.view.render(width); let text = lines.join("\n");
+  expect(text).toContain("DETAIL "); const range = text.match(/DETAIL (\d+)–(\d+)\//);
+  expect(range).not.toBeNull(); expect(Number(range![2]) - Number(range![1]) + 1).toBeGreaterThanOrEqual(Math.min(4, rows - 9));
+  expect(lines.length).toBeLessThanOrEqual(height); expect(lines.every(line => visibleWidth(line) <= width)).toBe(true); expect(text).toContain("Esc close");
+  for (let i = 0; i < 10 && !text.includes("ACCEPTANCE CRITERIA"); i++) { h.view.handleInput("\u001b[6~"); lines = h.view.render(width); text = lines.join("\n"); }
+  expect(text).toContain("ACCEPTANCE CRITERIA");
+  h.view.handleInput("\t"); expect(h.view.render(width).join("\n")).toContain("Fires");
+  expect(h.store.list()).toEqual(before); expect(h.done).not.toHaveBeenCalled();
+});
+
+it.each([12, 16, 24])("pages through details without skipping unseen lines at %s terminal rows", rows => {
+  const h = setup(3, rows); const before = structuredClone(h.store.list());
+  h.view.render(48); h.view.handleInput("\t");
+  const range = () => { const match = h.view.render(48).join("\n").match(/DETAIL (\d+)–(\d+)\//); expect(match).not.toBeNull(); return [Number(match![1]), Number(match![2])]; };
+  const first = range(); h.view.handleInput("\u001b[6~"); const next = range();
+  expect(next[0]).toBeGreaterThan(first[0]); expect(next[0]).toBeLessThanOrEqual(first[1] + 1);
+  h.view.handleInput("\u001b[5~"); expect(range()[0]).toBe(first[0]); expect(h.store.list()).toEqual(before);
+});
+
 it("does not clip the distinct hard fire ceiling from the narrow editor summary", () => {
   const h = setup(); const fixed = renderGoalSummary(h.store.list(), () => undefined, theme, 48).join("\n");
   expect(fixed).toContain("5 fires");

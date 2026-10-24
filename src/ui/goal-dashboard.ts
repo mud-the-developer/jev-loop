@@ -67,6 +67,7 @@ export class GoalDashboard {
   private renderedEntries: LoopEntry[] = [];
   private detailFocus = false;
   private scroll = 0;
+  private pageStep = 1;
   private frame = 0;
   private motion: boolean;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -137,6 +138,7 @@ export class GoalDashboard {
     const budget = budgetLines(entry, now, this.theme);
     if (!this.detailFocus) return [status, ...title, ...budget,
       ...(entry.completionReview && !phase ? ["Review reservation · unobserved"] : []), this.theme.fg("muted", "Tab/Enter: details")];
+    const heading = rows < 9 ? [status] : [status, ...title, ...budget];
     const tree = [
       "┌ Saved policy · not persisted execution authority",
       `├ Progress · iteration ${entry.dynamic?.iteration ?? 0}${entry.dynamic?.awaitingUpdate ? "; awaiting update" : "; next fire not reported as delivered"}`,
@@ -147,8 +149,9 @@ export class GoalDashboard {
       "", this.theme.bold("VERIFIER COVERAGE"), goalText(entry.completion!.verification.description),
       "", this.theme.bold("RECOVERY & AUTHORITY"), ...formatLoopLifecycle(entry, { storageScope: this.data.storageScope(), nextFireAt: this.data.nextFire(entry.id), now }).map(goalText),
     ].flatMap(line => wrapTextWithAnsi(line, width));
-    const available = Math.max(1, rows - 2 - title.length - budget.length); this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, tree.length - available)));
-    return [status, ...title, ...budget.map(line => truncateToWidth(line, width)), this.theme.fg("dim", `DETAIL ${this.scroll + 1}–${Math.min(tree.length, this.scroll + available)}/${tree.length} · Tab to focus`),
+    const available = Math.max(1, rows - 1 - heading.length); this.pageStep = Math.max(1, available - 1);
+    this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, tree.length - available)));
+    return [...heading.map(line => truncateToWidth(line, width)), this.theme.fg("dim", `DETAIL ${this.scroll + 1}–${Math.min(tree.length, this.scroll + available)}/${tree.length} · Tab to focus`),
       ...tree.slice(this.scroll, this.scroll + available)];
   }
   render(width: number): string[] {
@@ -163,11 +166,14 @@ export class GoalDashboard {
     const lead = pending ? `SETUP WAITING FOR IDLE · ${goalText(pending)}` : `${this.renderedEntries.length} goal(s) · ${pulse} ${phase ? "local review observed" : "no local review observed"}`;
     const selected = this.selected();
     if (height < 18) {
+      if (selected && this.detailFocus) return [header, ...this.details(selected, width, height - 3),
+        "↑↓ scroll · Tab summary · PgUp/PgDn", `Esc close · m motion ${this.motion ? "on" : "off"}`]
+        .map(line => truncateToWidth(line, width));
       return [header, this.theme.fg("muted", truncateToWidth(lead, width)),
         selected ? `▸ #${selected.id} ${stateLabel(selected, this.data.phase(selected), Date.now())}` : "No JEV controllers",
         ...(selected ? budgetLines(selected, Date.now(), this.theme) : ["g prepares a goal, not approval"]),
         ...(height >= 9 || !selected ? [selected ? goalText(selected.completion?.goal ?? selected.prompt) : "Ready for your next goal"] : []),
-        "Resize for criteria & recovery", "↑↓ select · g start · x cancel", `Esc close · m motion ${this.motion ? "on" : "off"}`]
+        "Tab details · Resize for more", "↑↓ select · g start · x cancel", `Esc close · m motion ${this.motion ? "on" : "off"}`]
         .map(line => truncateToWidth(line, width));
     }
     let body: string[];
@@ -199,8 +205,8 @@ export class GoalDashboard {
     else if (this.detailFocus) {
       if (matchesKey(data, Key.down)) this.scroll++;
       else if (matchesKey(data, Key.up)) this.scroll--;
-      else if (matchesKey(data, Key.pageDown)) this.scroll += 5;
-      else if (matchesKey(data, Key.pageUp)) this.scroll -= 5;
+      else if (matchesKey(data, Key.pageDown)) this.scroll += this.pageStep;
+      else if (matchesKey(data, Key.pageUp)) this.scroll -= this.pageStep;
     } else this.list?.handleInput(data);
     this.tui.requestRender();
   }

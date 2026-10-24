@@ -29,6 +29,21 @@ git diff --check
 
 Lint currently reports two established optional-chain warnings; new warnings are not accepted.
 
+### Development dependency security
+
+The development SDK remains pinned to Pi 1.2.0 for nested-tool compatibility.
+It pins vulnerable undici 8.10.2, so the root override uses the compatible
+8.12.3 security patch without changing SDK versions or adding a direct runtime
+dependency. Review the override when the upstream pin is fixed; do not use
+`npm audit fix --force` to downgrade the SDK. The patched package retains the
+Node 22.19 minimum and is checked with local fetch, integrity and EventSource
+smoke tests plus the normal suite.
+
+Root overrides protect this development tree only. They do not update the
+separately installed Pi host or its dependencies. Report a host dependency
+finding separately and obtain applicable update permission; never claim the
+host was patched by a repository lockfile change.
+
 ## Completion receipt and budget-separation checks
 
 The receipt is a feature expectation; the unwanted completion-to-budget summary
