@@ -99,7 +99,7 @@
     "@earendil-works/pi-coding-agent": "1.2.0",
     "@earendil-works/pi-tui": "1.2.0",
     "@types/node": "^26.6.5",
-    "@vitest/coverage-v8": "^5.0.4",
+    "@vitest/coverage-v8": "^5.0.5",
     "esbuild": "0.28.2",
     "fast-check": "^4.10.2",
     "tsx": "^4.23.15",
