@@ -36,7 +36,29 @@ Before runtime integration, agree a supported owner-enforced recipient fence:
 - A missing interface blocks the unsupported Full path. It is not permission
   to copy private grants, change providers or downgrade to a surprise review.
 
-Exact public field/tool names remain an integration proposal, not existing API.
+## Candidate protocol client (not active mode support)
+
+The companion source review now defines `jev_capabilities` protocol version1
+and optional `expectedRecipient` on ordinary `jev_decide` questions. This is a
+source candidate, not proof that an installed toolset has been reloaded or has
+any Full authorization. The provider's native command/name must be discovered
+from the current supported installation rather than an old alias.
+
+The internal Loop client validates a bounded matching text/details envelope,
+protocol version, configured recipient and explicit no-authority/no-live-check
+flags. Unknown, contradictory, error or extra fields fail closed. Capability
+inspection calls only the public empty-input tool; it does not issue a grant.
+
+A recipient decision attaches only that bound opaque value, without refreshing
+it or changing the supplied packet or mandatory-human flag. It goes through
+Pi's existing `executeTool` and scoped signal. Current-context checks run before
+and after awaits; stale/failed operations produce sanitized errors without
+retry, another recipient, fallback or raw provider-data echo. Advice validation
+and actual native access remain independent owner responsibilities.
+
+Reviewed runtime registration is unchanged. This client is not wired into a
+Full UI/admission path yet. `delegationFencing: false` cannot be advertised as
+fenced worker admission, and unsupported installed metadata cannot enable Full.
 
 ## Volatile state and native ownership
 
