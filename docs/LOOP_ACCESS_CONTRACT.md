@@ -3,9 +3,9 @@
 Classification: **feature expectations and integration hardening**, not a claim
 of a reproduced defect in existing Reviewed operation.
 
-This foundation is internal and unexposed. It adds no command, public tool
-parameter, active Full grant or persisted approval. Controlled reducer tests
-are not native consent or live acceptance.
+This foundation and its native effect owner are internal and unexposed. They
+register no activation command/tool, active Full grant or persisted approval.
+Controlled reducer, UI and owner tests are not native consent or live acceptance.
 
 ## P0 findings
 
@@ -56,15 +56,16 @@ and after awaits; stale/failed operations produce sanitized errors without
 retry, another recipient, fallback or raw provider-data echo. Advice validation
 and actual native access remain independent owner responsibilities.
 
-Reviewed runtime registration is unchanged. This client is not wired into a
-Full UI/admission path yet. `delegationFencing: false` cannot be advertised as
-fenced worker admission, and unsupported installed metadata cannot enable Full.
+Reviewed runtime registration is unchanged. Neither the client nor the internal
+owner registers a public activation or Full goal-admission path yet.
+`delegationFencing: false` cannot be advertised as fenced worker admission, and
+unsupported installed metadata cannot enable Full.
 
 ## Volatile state and native ownership
 
-The pure `loop-access` reducer receives only owner-created events. Future native
-UI/effects must validate the current context before supplying a reply. Neither
-its serialized state nor an `authorized` effect is accepted from public input.
+The pure `loop-access` reducer receives only owner-created events. The native
+effect owner validates the current context before supplying a reply. Neither
+serialized state nor an `authorized` effect is accepted from public input.
 
 Binding consists of session ID, working directory, store identity, runtime
 generation and the supported judge fence. The working directory is an authority
@@ -92,6 +93,42 @@ reviewed ---------------------------------> closed
 The runtime adapter must additionally enforce current controller creation,
 policy/snapshot/CAS, status, eligibility and hard expiry at every awaited
 boundary. The reducer is not a substitute for those existing guards.
+
+## Internal native effect owner (not activated)
+
+The adapter starts Reviewed and accepts session storage only. It snapshots the
+native session, directory, live store object and runtime generation before the
+public capability query. Finite ceilings and context are checked before UI.
+The existing scrollable native review is reused, with No first in TUI and RPC.
+Its Full review is bounded by scoped cancellation, not a separate 120-second
+limit or an invented infinite countdown. Reviewed goal deadlines are unchanged.
+
+The exact local disclosure names scope, opaque judge recipient, finite ceilings,
+per-goal admission origin, goal-selected fixed programs/arguments, inherited
+process environment, possible side effects outside the directory, privacy and
+retained host gates. It is not a filesystem/tool sandbox or semantic dangerous-
+command checker. After literal native acceptance the public recipient is checked
+again; changes deny activation rather than silently rebinding. The accepted
+live grant has its own cancellation signal, not the finished dialog's signal.
+
+Each authorization checks current scope/action/ceilings, then reads and compares
+the public recipient without refreshing the grant. Returned leases are private,
+epoch-bound snapshots. Their `current()` check is local and non-mutating, not a
+remote health probe; actual outbound requests still require the provider-owned
+recipient fence and independent advice validation. Read-only status cannot
+claim work, issue/revoke access, pause controllers or send wakes.
+
+Revocation invalidates signals before awaiting anything and waits for the native
+review, its own pending authorization queries and the caller's `drain(id)`.
+That callback must cancel only owned Full work and pause unfinished owned goals
+through existing store/CAS paths; this controller adapter is not wired yet.
+Unconfirmed cleanup stays revoking and blocks activation without automatic
+retry. Closing never reopens, and a new owner never restores a saved grant.
+
+The target SDK exposes nested public-tool calls on `ExtensionToolContext`, not
+`ExtensionCommandContext`. The owner requires the supported tool context; a
+command handoff or tool argument cannot replace its actual native acknowledgement.
+No unsupported command-context cast or private peer lease is used.
 
 ## Goal lifetime origin under Full
 

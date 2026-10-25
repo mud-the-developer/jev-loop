@@ -10,6 +10,12 @@ export function confirmCompletionApproval(ctx: ExtensionToolContext, message: st
     return ctx.ui.confirm("Approve JEV loop", message, { signal, ...(remaining <= 2_147_483_647 ? { timeout: remaining } : {}) });
   }
 
+  return confirmTuiApproval(ctx, message, { ...options, title: "Approve JEV loop" });
+}
+
+function confirmTuiApproval(ctx: ExtensionToolContext, message: string, options: { signal: AbortSignal; deadline?: number; title: string }): Promise<boolean> {
+  const { signal, deadline, title } = options;
+  const active = () => !signal.aborted && (deadline === undefined || Date.now() < deadline);
   return ctx.ui.custom<boolean>((tui, theme, _keys, done) => {
     const heading = new Text("", 0, 0);
     const details = new ScrollView(new Text(message, 0, 0));
@@ -48,18 +54,18 @@ export function confirmCompletionApproval(ctx: ExtensionToolContext, message: st
     }
     function finish(accepted: boolean) {
       if (disposed) return;
-      const allowed = accepted && readable && tui.terminal.columns >= 34 && bodyHeight(tui.terminal.columns - 2) >= 2 && !signal.aborted && Date.now() < deadline;
+      const allowed = accepted && readable && tui.terminal.columns >= 34 && bodyHeight(tui.terminal.columns - 2) >= 2 && active();
       dispose();
       done(allowed);
     }
     function cancel() { finish(false); }
-    const tick = setInterval(() => { if (Date.now() >= deadline) cancel(); else tui.requestRender(); }, 1_000);
+    const tick = setInterval(() => { if (!active()) cancel(); else tui.requestRender(); }, 1_000);
     choices.onSelect = item => finish(item.value === "yes");
     choices.onCancel = cancel;
 
     const component: Component & { dispose(): void } = {
       render(width) {
-        heading.setText(`Approve JEV loop (${Math.max(0, Math.ceil((deadline - Date.now()) / 1_000))}s)`);
+        heading.setText(`${title} (${deadline === undefined ? "current session" : `${Math.max(0, Math.ceil((deadline - Date.now()) / 1_000))}s`})`);
         viewportHeight = bodyHeight(Math.max(1, width));
         readable = width >= 32 && viewportHeight >= 2;
         if (!readable) return new Text("Resize terminal to review. Esc cancels.", 0, 0).render(Math.max(1, width)).slice(0, Math.max(0, tui.terminal.rows - 2));
@@ -68,7 +74,7 @@ export function confirmCompletionApproval(ctx: ExtensionToolContext, message: st
       invalidate() { container.invalidate(); },
       handleInput(data) {
         if (disposed) return;
-        if (signal.aborted || Date.now() >= deadline || matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { cancel(); return; }
+        if (!active() || matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { cancel(); return; }
         if (matchesKey(data, "tab")) choices.setSelectedIndex(choices.getSelectedItem()?.value === "no" ? 1 : 0);
         else if (matchesKey(data, "left")) choices.setSelectedIndex(0);
         else if (matchesKey(data, "right")) choices.setSelectedIndex(1);
@@ -92,4 +98,13 @@ export function confirmCompletionApproval(ctx: ExtensionToolContext, message: st
     if (signal.aborted) cancel();
     return component;
   }, { overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", margin: 1 } });
+}
+
+export async function confirmLoopFullAccess(ctx: ExtensionToolContext, message: string, options: { signal: AbortSignal }): Promise<boolean> {
+  const { signal } = options; if (signal.aborted) return false;
+  if (ctx.mode !== "tui") {
+    const choice = await ctx.ui.select(`Enable Loop Full Access\n\n${message}`, ["No — cancel", "Yes — approve"], { signal });
+    return choice === "Yes — approve" && !signal.aborted;
+  }
+  return confirmTuiApproval(ctx, message, { signal, title: "Enable Loop Full Access" });
 }

@@ -1,5 +1,6 @@
 import { type Component, stripTerminalSequences, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { confirmLoopFullAccess } from "../src/ui/completion-approval.js";
 import { deferred, fixture, policy, text } from "./helpers/jev-loop-fixture.js";
 
 type View = Component & { dispose?(): void };
@@ -27,6 +28,45 @@ function untouched(h: ReturnType<typeof fixture>) {
   expect(h.store.list()).toEqual([]); expect(h.activate).not.toHaveBeenCalled();
   expect(h.exec).not.toHaveBeenCalled(); expect(h.executeTool).not.toHaveBeenCalled();
 }
+
+describe("session-bound native Loop Full review expectations", () => {
+  it("uses the native scrollable view with no fake deadline and defaults to No", async () => {
+    vi.useFakeTimers(); const s = screen(48, 16); const controller = new AbortController();
+    const pending = confirmLoopFullAccess(s.h.ctx, "Exact current-session scope and finite goal ceilings.", { signal: controller.signal });
+    expect(s.custom).toHaveBeenCalledTimes(1); const lines = s.render();
+    expect(lines.join("\n")).toContain("Enable Loop Full Access"); expect(lines.join("\n")).toContain("current session");
+    expect(lines.join("\n")).not.toContain("NaN"); expect(lines.length).toBeLessThanOrEqual(14);
+    s.view.handleInput!("\r"); expect(await pending).toBe(false); untouched(s.h); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("requires an explicit positive choice without executing or granting anything itself", async () => {
+    vi.useFakeTimers(); const s = screen(); const controller = new AbortController();
+    const pending = confirmLoopFullAccess(s.h.ctx, "Exact current-session disclosure.", { signal: controller.signal });
+    expect(s.custom).toHaveBeenCalledTimes(1); s.render(); s.view.handleInput!("\t"); s.view.handleInput!("\r");
+    expect(await pending).toBe(true); untouched(s.h); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("waits for the scoped cancellation instead of a separate 120-second limit", async () => {
+    vi.useFakeTimers(); const s = screen(); const controller = new AbortController(); let settled = false;
+    const pending = confirmLoopFullAccess(s.h.ctx, "Exact current-session disclosure.", { signal: controller.signal }).finally(() => { settled = true; });
+    expect(s.custom).toHaveBeenCalledTimes(1); s.render(); await vi.advanceTimersByTimeAsync(121000);
+    expect(settled).toBe(false); controller.abort(); expect(await pending).toBe(false); untouched(s.h); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([false, true])("accepts only a current explicit RPC Yes (cancelled=%s)", async cancelled => {
+    const h = fixture(); sessions.push(h); const controller = new AbortController();
+    Object.assign(h.ctx.ui, { select: vi.fn(async () => { if (cancelled) controller.abort(); return "Yes — approve"; }) });
+    expect(await confirmLoopFullAccess(h.ctx, "Exact disclosure.", { signal: controller.signal })).toBe(!cancelled); untouched(h);
+    controller.abort(); expect(await confirmLoopFullAccess(h.ctx, "Exact disclosure.", { signal: controller.signal })).toBe(false);
+  });
+
+  it("keeps RPC selection No-first and never turns an unoffered value into approval", async () => {
+    const h = fixture(); sessions.push(h); const select = vi.fn(async () => "not-offered"); Object.assign(h.ctx.ui, { select });
+    const controller = new AbortController(); expect(await confirmLoopFullAccess(h.ctx, "Exact disclosure.", { signal: controller.signal })).toBe(false);
+    expect(select).toHaveBeenCalledWith(expect.stringContaining("Exact disclosure."), ["No — cancel", "Yes — approve"], { signal: controller.signal });
+    expect(h.confirm).not.toHaveBeenCalled(); untouched(h);
+  });
+});
 
 describe.skipIf(process.platform === "win32")("bounded JEV approval presentation", () => {
   it.each([[100, 30], [160, 60], [48, 16], [90, 45]])("pins choices and countdown inside a %i by %i terminal", async (columns, rows) => {
@@ -92,7 +132,7 @@ describe.skipIf(process.platform === "win32")("bounded JEV approval presentation
     vi.useFakeTimers(); const s = screen(); const pending = s.h.create();
     const before = s.render(); const event: TuiMouseEvent = { type: "wheel", button: "none", x: 3, y: 3, screenX: 3, screenY: 3, width: 98, height: 28, shift: false, alt: false, ctrl: false, wheelDelta: 3 };
     const routed = s.view.handleMouse!(event);
-    expect(routed?.handled).toBe(true); expect(routed?.focusTarget).toBe(s.view);
+    expect(routed?.handled).toBe(true); expect(routed && "focusTarget" in routed ? routed.focusTarget : undefined).toBe(s.view);
     const scrolled = s.render(); expect(scrolled[2]).not.toBe(before[2]);
     s.view.invalidate(); expect(s.render()).toEqual(scrolled);
     expect(scrolled.join("\n")).toContain("Yes — approve"); expect(scrolled.join("\n")).toContain("No — cancel");
