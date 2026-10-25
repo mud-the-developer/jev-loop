@@ -521,6 +521,13 @@ send a wake. Actual supported SDK/host-deny integration, genuine operator-mode
 flows, native terminal tasks and peer-owned live delegation remain separate
 release evidence; unavailable/skipped/synthetic trials are never live passes.
 
+`test/full-capability-sdk.test.ts` independently exercises actual pinned SDK
+nested dispatch with controlled protocol-two metadata. A synthetic No leaves
+mode Reviewed, while an ordinary SDK `tool_call` denial blocks the capability
+handler before any UI/service effect. This isolates ABI/host-hook support from
+real connection availability; it is not real operator consent or a live-service
+pass. Unavailable metadata must remain held without provider/config fallback.
+
 ### Prepared native Full operator fixture (not automatic live acceptance)
 
 `test/e2e/jev-loop-full-operator.mjs --self-check` validates response framing
