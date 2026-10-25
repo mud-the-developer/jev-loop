@@ -1,169 +1,156 @@
-# Loop access foundation contract
+# Scoped Loop access contract — v1 candidate
 
-Classification: **feature expectations and integration hardening**, not a claim
-of a reproduced defect in existing Reviewed operation.
+Classification: feature expectations and authority/lifetime hardening. This
+source candidate registers a static native `LoopAccess` tool and explicit new-
+goal Full admission. It is not a claim that an installed extension was reloaded,
+that a user activated Full, or that live worker/provider acceptance passed.
 
-This foundation and its native effect owner are internal and unexposed. They
-register no activation command/tool, active Full grant or persisted approval.
-Controlled reducer, UI and owner tests are not native consent or live acceptance.
+## Public entry points
 
-## P0 findings
+`LoopAccess` uses a closed action schema:
 
-The configured JEV extension has existing public decision/delegation tools and
-a session-only native delegation Full Access owner. That owner does not grant
-permission to Loop or other extensions. No supported public read-only
-capability/recipient-lifetime interface was found in the inspected source.
+- `{ action: "status" }` inspects local mode/applicability/finite ceilings only.
+- `{ action: "full", maxFires, expiresIn }` requests native session activation.
+  Both limits are finite **per-goal hard ceilings**, not a renewed session quota.
+- `{ action: "reviewed" }` revokes this owner's Full authority and waits for its
+  pending admission, verification/advice and controller cleanup. It does not
+  revoke JEV delegation access or cancel unrelated Reviewed goals.
+- `{ action: "review_goal", id }` explicitly requests a fresh **Reviewed** review
+  of retained Full intent. It preserves the saved hard deadline, fire cap,
+  policy and adaptive start. It does not restore a mode grant or resume work.
+  Use normal `LoopUpdate continue` afterward when eligible. Expired/exhausted
+  goals and unknown/draining work are not renewed. An exhausted operating
+  allocation still follows its existing bounded checkpoint path.
 
-The current Loop runtime discovers the public decision tool by name. Its
-controller fingerprint does not bind an opaque JEV recipient generation.
-Therefore a Loop Full runtime must not be enabled on that check alone.
+`LoopCreate.requestedAccess` is optional: missing/`reviewed` keeps the original
+native per-goal Reviewed path. `full` applies only to a **new** recurring idle
+completion goal with explicit finite lifetime/fire bounds and matching live
+activation. Cron/event/hybrid, workflows, TaskStore, backlog and orchestration
+are not widened. An argument, command handoff, status, history or persisted flag
+cannot issue authority, silently fall back or adopt an existing controller.
 
-JEV connection objects contain credentials and stay effect-local. The existing
-private delegation `lease`/authorize path may revoke stale access and cancel
-work, so it is not a read-only capability getter and must not be used as one.
+The tool set/schemas remain static across mode changes. Native command contexts
+do not expose nested public-tool execution in the supported SDK; activation uses
+the supported `ExtensionToolContext`, not an old context or a private API cast.
+The existing `/jev-loop` dashboard displays local mode observations without
+querying a provider or changing grants. Its goal preparation remains Reviewed
+by default; choosing Full requires the explicit argument and live activation.
 
-Before runtime integration, agree a supported owner-enforced recipient fence:
+## Separate owners and public recipient protocol
 
-- Read-only capability metadata is bounded, non-secret information, not a
-  grant. Inspection must not enable, revoke, claim or execute work.
-- An opaque random revision must not be a credential hash or expose endpoints,
-  keys, original prompts or workspace contents.
-- The owner must revalidate an expected recipient at its actual request sink,
-  after awaited/progress boundaries; a Loop preflight alone is insufficient.
-- Fencing metadata stays outside external JEV questions/state. Legacy calls
-  retain their existing schema behavior; supported fenced calls fail closed
-  before any request when stale or unsupported.
-- A missing interface blocks the unsupported Full path. It is not permission
-  to copy private grants, change providers or downgrade to a surprise review.
+Loop owns its process-local native access and controller admission. LoopStore
+continues owning loops, snapshots, pauses and CAS. JEV owns decision transport
+and its independent delegation/profile/model/tool/file/job policies. Neither
+owner copies another owner's private lease or reconstructs authority from it.
+No new worker engine, cross-store transaction, account-wide grant or OS sandbox
+is introduced.
 
-## Candidate protocol client (not active mode support)
+Full requires `jev_capabilities` **protocol 2** with a configured opaque
+recipient, `fencedDecision: true`, literal
+`recipientInvalidationEvent: "jev:recipient:invalidated"`, and explicit
+`grantsAuthority: false`, `liveVerified: false`, `delegationFencing: false`.
+The bounded single-text/details metadata must agree. Old/unknown versions,
+extra, conflicting or authority/live-check claims fail closed. Availability is
+local configuration information, never backend health or permission. Native
+provider commands are discovered from the current supported installation,
+not an old alias. Companion source review is not a product release or reload.
 
-The companion source review now defines `jev_capabilities` protocol version1
-and optional `expectedRecipient` on ordinary `jev_decide` questions. This is a
-source candidate, not proof that an installed toolset has been reloaded or has
-any Full authorization. The provider's native command/name must be discovered
-from the current supported installation rather than an old alias.
+Protocol 2 publishes deny-only native event-bus information:
+`{ kind: "jev_recipient_invalidated", protocolVersion: 2, recipient }` on the
+named channel. The only variable is the discarded opaque token. The provider
+invalidates metadata before publication. Loop validates the closed bounded
+payload, matches its current binding and invalidates its epoch/signals before
+awaiting cleanup. Wrong tokens/versions, malformed data and authority-shaped
+packets cannot issue or refresh access. This is not acknowledged delivery,
+remote quiescence or exactly-once execution.
 
-The internal Loop client validates a bounded matching text/details envelope,
-protocol version, configured recipient and explicit no-authority/no-live-check
-flags. Unknown, contradictory, error or extra fields fail closed. Capability
-inspection calls only the public empty-input tool; it does not issue a grant.
+Each actual Full authorization still reads/compares public metadata. Ordinary
+Full decision requests attach only `expectedRecipient` through the existing
+nested-tool handler; the peer strips it before original decision state/external
+questions and fences its actual HTTP sink after progress/observer/response
+boundaries. No refresh, alternate recipient, automatic retry or fallback occurs.
+Reviewed decision inputs remain unchanged. Worker fencing remains unsupported;
+`delegationFencing: false` is not worker admission evidence.
 
-A recipient decision attaches only that bound opaque value, without refreshing
-it or changing the supplied packet or mandatory-human flag. It goes through
-Pi's existing `executeTool` and scoped signal. Current-context checks run before
-and after awaits; stale/failed operations produce sanitized errors without
-retry, another recipient, fallback or raw provider-data echo. Advice validation
-and actual native access remain independent owner responsibilities.
+## Native scope and finite admission
 
-Reviewed runtime registration is unchanged. Neither the client nor the internal
-owner registers a public activation or Full goal-admission path yet.
-`delegationFencing: false` cannot be advertised as fenced worker admission, and
-unsupported installed metadata cannot enable Full.
+The native owner starts Reviewed and accepts session storage only. Before UI
+it captures the native session, directory, live store object identity, runtime
+generation and recipient. Finite positive safe-integer ceilings are validated.
+The existing scrollable No-first TUI/RPC review is reused. Full waiting follows
+its scoped cancellation rather than an invented infinite countdown or separate
+120-second limit. Reviewed goal deadlines and approval timing are unchanged.
 
-## Volatile state and native ownership
+The exact local disclosure names those bindings, finite ceilings and the rule
+for goal lifetime origin. It discloses goal-selected fixed verifier programs and
+arguments, inherited process environment and possible effects outside the cwd
+under the same OS user. It is not a filesystem/tool sandbox or a semantic
+command-safety checker. Existing host/nested-tool/transmission gates remain;
+unapproved destructive/release/global operations and secrets are not granted.
 
-The pure `loop-access` reducer receives only owner-created events. The native
-effect owner validates the current context before supplying a reply. Neither
-serialized state nor an `authorized` effect is accepted from public input.
+Only a literal matching native acknowledgement can activate Full. Recipient and
+context are checked again after the reply; drift denies rather than rebinding.
+The accepted live grant has its own signal, not the finished dialog's signal.
+Private leases bind epoch/context/action/budget. Local `matches`/`current`
+observations are not remote health probes or serialized bearer permission.
 
-Binding consists of session ID, working directory, store identity, runtime
-generation and the supported judge fence. The working directory is an authority
-binding, not an OS sandbox. The same OS-user permissions and host gates remain.
+A new Full goal captures trusted admission time **once, before capability and
+initial budget awaits**. Fixed hard expiry and adaptive `startedAt` retain that
+origin even if advice is slow. Caller timestamps are not authority. The hard
+fire cap/deadline never reset on progress, extension, restart or recovery.
+Existing Reviewed goals preserve their original genuine approval timing.
 
-```text
-reviewed -> awaiting_ack -> full -> revoking -> reviewed
-                                  revoking -> closed
-reviewed ---------------------------------> closed
-```
+## Memory provenance, cancellation and recovery
 
-- A valid request creates only a native-confirmation effect with independently
-  copied scope/finite goal ceilings. It does not become Full.
-- Only literal `true` for the matching native request, epoch and binding moves
-  awaiting acknowledgement to Full. Old replies and malformed scope do not.
-- Goal creation, verification and advice require the matching live scope and a
-  positive safe-integer budget within both approved per-goal ceilings.
-- Actual binding drift revokes before another effect. Invalid/out-of-envelope
-  requests cannot alter or extend an otherwise valid grant.
-- Revocation advances an epoch and requests owned cancellation/draining. New
-  activation/authorization is denied until that specific drain completes.
-- Old drain completions cannot settle a later revocation. Closing during drain
-  preserves its identity and waits; closed state never reopens.
+Private records distinguish genuine per-goal Reviewed approval from scoped
+session Full admission. Full records bind their originating activation ID,
+epoch and immutable hard envelope. A later mode activation cannot adopt them.
+Only inert `requestedAccess: "full"` intent is persisted; native grants are not.
+No Full timestamp or receipt is forged as a Reviewed acknowledgement.
 
-The runtime adapter must additionally enforce current controller creation,
-policy/snapshot/CAS, status, eligibility and hard expiry at every awaited
-boundary. The reducer is not a substitute for those existing guards.
+Every awaited effect retains session/store/generation/epoch, original expiry,
+controller snapshot/review reservation and final CAS checks. Verification and
+advice inherit the live Full signal. Nonzero fixed-verifier exits allow scoped
+repair within the same envelope; malformed/provider failures, cancellation,
+expiry and missing authority do not grant retry, fallback or extra budget.
 
-## Internal native effect owner (not activated)
+Revocation aborts before awaiting anything, waits for its own pending native and
+authorization queries, cancels only owned Full reviews and pauses unfinished
+owned controllers using existing snapshot/CAS paths. Verification is awaited
+through physical process settlement. Unknown cleanup or failed CAS stays
+revoking and blocks reactivation. Reviewed work and JEV's separate grant remain
+unchanged. Global shutdown invalidates existing Reviewed work synchronously
+before waiting for mode cleanup; its ordering regression has deterministic
+passing controls.
 
-The adapter starts Reviewed and accepts session storage only. It snapshots the
-native session, directory, live store object and runtime generation before the
-public capability query. Finite ceilings and context are checked before UI.
-The existing scrollable native review is reused, with No first in TUI and RPC.
-Its Full review is bounded by scoped cancellation, not a separate 120-second
-limit or an invented infinite countdown. Reviewed goal deadlines are unchanged.
+If revocation races controller creation after the write, the matching created
+work is retained/held, not silently deleted or reported as never created. No
+activation is authorized. Scheduled idle dispatch checks local authority before
+consuming a fire. Buffered notifications recheck authority even during the gap
+before asynchronous pause persistence. Native resume menus neither offer nor
+honor unapproved Full resumption. Read-only inspection cannot claim/pause work,
+send wakes, issue/revoke access or infer unobserved delivery.
 
-The exact local disclosure names scope, opaque judge recipient, finite ceilings,
-per-goal admission origin, goal-selected fixed programs/arguments, inherited
-process environment, possible side effects outside the directory, privacy and
-retained host gates. It is not a filesystem/tool sandbox or semantic dangerous-
-command checker. After literal native acceptance the public recipient is checked
-again; changes deny activation rather than silently rebinding. The accepted
-live grant has its own cancellation signal, not the finished dialog's signal.
+Closing never reopens the same owner. Session replacement starts a new Reviewed
+owner; restart never restores access. Explicit Reviewed recovery verifies the
+original cwd, current snapshot and remaining hard envelope and uses genuine
+native confirmation. It cannot clear another live review or certify unknown
+process cleanup. Recovery does not reset a budget or silently switch policy.
 
-Each authorization checks current scope/action/ceilings, then reads and compares
-the public recipient without refreshing the grant. Returned leases are private,
-epoch-bound snapshots. Their `current()` check is local and non-mutating, not a
-remote health probe; actual outbound requests still require the provider-owned
-recipient fence and independent advice validation. Read-only status cannot
-claim work, issue/revoke access, pause controllers or send wakes.
+## Privacy and evidence
 
-Revocation invalidates signals before awaiting anything and waits for the native
-review, its own pending authorization queries and the caller's `drain(id)`.
-That callback must cancel only owned Full work and pause unfinished owned goals
-through existing store/CAS paths; this controller adapter is not wired yet.
-Unconfirmed cleanup stays revoking and blocks activation without automatic
-retry. Closing never reopens, and a new owner never restores a saved grant.
+Only separately authored bounded non-sensitive English policy/evidence and safe
+numeric outcomes are prepared for JEV. Original goals, source, paths, argv,
+logs, history, local state/metrics, raw verifier output and credentials never
+become decision evidence. Local native disclosure is separate. Budget evidence
+is independently authored, not copied completion evidence or raw local state.
+JEV advice, status and metadata are neither permission nor proof.
 
-The target SDK exposes nested public-tool calls on `ExtensionToolContext`, not
-`ExtensionCommandContext`. The owner requires the supported tool context; a
-command handoff or tool argument cannot replace its actual native acknowledgement.
-No unsupported command-context cast or private peer lease is used.
-
-## Goal lifetime origin under Full
-
-A future Full activation authorizes a stated rule for new goals. Each new goal
-captures its trusted live admission time once, before initial operating-budget
-advice, as its immutable hard-window origin. No caller timestamp supplies it.
-The native mode acknowledgement must disclose this rule and the finite
-per-goal ceilings. Budget selection or extension never restarts that origin.
-
-Existing Reviewed goals retain their genuine goal-approval origin and exact
-policy. Enabling Full must not migrate an existing controller, silently renew a
-fixed goal, adopt an expired goal or change a running development controller.
-
-## Preserved boundaries
-
-- LoopStore continues owning controller state and persistence. Access authority
-  is process-local, never a stored flag, task lease or peer claim.
-- Reviewed remains the default. Runtime Full UI/admission is deliberately not
-  exposed by this foundation before the public fencing contract is supported.
-- Existing fixed/adaptive envelopes, evidence novelty, finite expiry, verifier
-  cleanup and host tool/transmission handlers remain unchanged.
-- JEV owns worker/profile/model/tool/file admission and global concurrency.
-  Loop does not gain delegation authority from its own activation.
-- No raw source, paths, arguments, original goals, logs, history or credentials
-  are collected for JEV. Local binding data never becomes external evidence.
-- Regression/property tests use controlled events, not fabricated live grants.
-  Actual native activation and live execution require their exact current
-  approvals; no skipped or fake-provider trial is reported as a pass.
-
-## Required evidence
-
-Deterministic cases cover native request/reply identity, literal acceptance,
-all binding fields, malformed/extra input, finite ceiling boundaries,
-state-preserving denial, copied payloads, epoch revocation and stale drain
-completion. Generated traces independently assert no authority outside Full,
-no reopening of closed state, no premature exit from draining and no scope or
-budget growth. Existing Reviewed/runtime and adaptive-budget controls remain
-independent. Red/green observations stay outside committed fixtures.
+Tests cover closed schemas, genuine-callback requirements, field/budget drift,
+ABA/epochs, metadata events, copied payloads, hard origins, post-write holding,
+physical drain, replay/refusal, explicit recovery and native root idle/pending-
+wake fencing. Generated traces retain independent scope/closed-state invariants.
+File-backed controlled SDK/UI/mock transport tests are **not actual user consent
+or real-provider/worker acceptance**. Live native authorization, host-deny,
+current native UI and release evidence require their exact applicable approvals;
+SKIP, unavailable providers and synthetic Yes are never reported as live passes.

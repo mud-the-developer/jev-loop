@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { VERIFICATION_SUPPORTED } from "../completion-verifier.js";
 import type { CompletionReviewPhase } from "../runtime/jev-loop-runtime.js";
+import type { LoopAccessStatus } from "../runtime/loop-access-runtime.js";
 import type { LoopStorageScope } from "../runtime/scope.js";
 import type { LoopStore } from "../store.js";
 import type { LoopEntry } from "../types.js";
@@ -17,6 +18,7 @@ interface Options {
   getStorageScope: () => LoopStorageScope;
   getNextFire: (id: string) => number | undefined;
   getReviewPhase?: (entry: LoopEntry) => CompletionReviewPhase | undefined;
+  getAccessStatus?: (ctx: ExtensionCommandContext) => LoopAccessStatus | undefined;
 }
 
 function setupMessage(goal: string): string {
@@ -126,7 +128,7 @@ export function registerJevLoopCommand(options: Options): void {
         if (!goal && ctx.mode === "tui") {
           const action = await showGoalDashboard(ctx, { entries: () => getStore().list().filter(entry => entry.completion),
             pendingGoal: () => pending?.current() ? pending.goal : undefined, phase: entry => options.getReviewPhase?.(entry),
-            storageScope: options.getStorageScope, nextFire: options.getNextFire, current, signal });
+            storageScope: options.getStorageScope, access: () => options.getAccessStatus?.(ctx), nextFire: options.getNextFire, current, signal });
           if (!current() || !action || action.type === "close") return;
           if (action.type === "cancel") {
             const accepted = await ctx.ui.confirm(`Cancel JEV loop #${action.entry.id}?`, `Cancel only this observed controller and drain its owned local review?\n${goalText(action.entry.prompt).slice(0, 200)}`, { signal });

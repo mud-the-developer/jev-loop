@@ -56,6 +56,36 @@ Completion `LoopUpdate` results may contain `details.completionReview`: bounded 
 
 Wake delivery is idle-driven. A due timer or event mutates loop state, emits `loop:fire`, buffers a generation-tagged notification, and sends a hidden Pi message when delivery is safe. Immediately before a buffered workflow wake is sent, the runtime re-reads `LoopStore` and requires the controller status, state, transition sequence, and execution ID to match the queued snapshot; compatible definition revisions refresh the message from current state; deleted, transitioned, paused, or reissued work is dropped even within the same session generation. Retirement follows the same generation-fenced notification path after the store mutation and emits a typed `loops:expired` payload whose reason distinguishes `expires_at` from `resume_event_stale`. Pending fire and retirement notifications are memory-only; they are not a durable event ledger across process death. Stale extension contexts are probed before fire mutation.
 
+## Scoped Loop access (v1 source candidate)
+
+`LoopAccess` is static: `status`, native `full` with positive safe-integer
+`maxFires` and finite `expiresIn` per-goal ceilings, `reviewed` to revoke/drain,
+and explicit `review_goal` with a saved ID. Missing `LoopCreate.requestedAccess`
+is Reviewed; explicit `full` requires live matching native authority for a new
+bounded recurring idle completion goal. No workflow/task/orchestration domain
+or existing goal is adopted. Status, arguments, history and stored intent are
+not grants. The source candidate requires protocol-two public JEV metadata and
+deny-only invalidation events; unsupported versions fail closed.
+
+Full binds session/cwd/store-object/generation/access epoch/recipient and private
+provenance. Its trusted per-goal admission origin is captured once before
+capability/budget awaits, unlike Reviewed's unchanged native-consent origin.
+Fixed deadlines and adaptive `startedAt` never reset. Private Full records are
+not native Reviewed receipts. Only inert `requestedAccess: "full"` persists.
+After restart/revocation, a fresh mode cannot adopt it: explicit native Reviewed
+recovery must reapprove the remaining unchanged policy/envelope. Expired,
+exhausted, concurrently reviewed or unknown/draining work stays held.
+
+Mode revocation invalidates signals before awaits, drains owned effects and
+pauses unfinished owned controllers by snapshot/CAS; other Reviewed goals and
+JEV delegation authority remain independent. Root idle fires and queued wakes
+recheck local authority before consumption/delivery; read-only UI neither
+resumes work nor infers live permission from a saved flag. Host tool/transmission
+gates, 30-second fixed verification, privacy and immutable budgets remain.
+Full is same-user execution, not a command-safety checker or filesystem/tool
+sandbox. The [access contract](LOOP_ACCESS_CONTRACT.md) states limitations;
+controlled fixtures are not genuine operator or provider acceptance.
+
 ## Subagent orchestration model
 
 `OrchestrationCreate` persists an explicit finite batch of independent work directly in one dynamic `LoopEntry`. It requires the default file-backed session scope and a protocol-v2 `pi-subagents` responder before writing state. It does not discover TaskStore records, execute workflow phases, or use the generic scheduler.

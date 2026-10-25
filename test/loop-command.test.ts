@@ -736,6 +736,21 @@ describe("registerLoopCommand", () => {
     expect(h.onDynamicLoopActivated).not.toHaveBeenCalled();
   });
 
+  it("does not offer or honor resume for retained Full intent without live authority", async () => {
+    const instance = setup({ canActivate: () => false });
+    instance.store.create({ type: "dynamic" }, "Retained Full intent", { recurring: true, maxFires: 3, completion: policy,
+      completionCwd: process.cwd(), requestedAccess: "full" }); instance.store.pause("1"); const before = structuredClone(instance.store.get("1"));
+    const actions: string[][] = [];
+    const ui = { select: vi.fn(async (title: string, choices: string[]) => {
+      if (title === "Loop") return "View loops"; if (title === "Loops") return choices.find(choice => choice.includes("#1"));
+      if (title.startsWith("#1")) { actions.push(choices); return "* Resume"; } return undefined;
+    }), input: vi.fn(), notify: vi.fn() };
+    await instance.command.handler!("", { ui });
+    expect(actions).toHaveLength(1); expect(actions[0]).not.toContain("* Resume"); expect(instance.store.get("1")).toEqual(before);
+    expect(instance.triggerSystem.add).not.toHaveBeenCalled(); expect(instance.onDynamicLoopActivated).not.toHaveBeenCalled();
+    expect(ui.notify).toHaveBeenCalledWith(expect.stringContaining("explicit Reviewed recovery"), "warning");
+  });
+
   it("resumes a blocked dynamic loop and clears its awaiting-update gate", async () => {
     await h.command.handler!("finish release", createCtx());
     h.store.updateDynamic("1", { dynamic: { awaitingUpdate: true } });

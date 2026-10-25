@@ -6,6 +6,7 @@ import { LoopStore } from "../src/store.js";
 import { formatWorkflowSummary } from "../src/tools/workflow-tools.js";
 import type { LoopEntry } from "../src/types.js";
 import { canResumeFromInspection, formatLoopLifecycle } from "../src/ui/lifecycle-presentation.js";
+import { policy } from "./helpers/jev-loop-fixture.js";
 
 const NOW = Date.UTC(2026, 9, 6, 12);
 
@@ -43,6 +44,12 @@ function text(entry: LoopEntry): string {
 describe("lifecycle inspection expectations and invariants", () => {
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
   afterEach(() => vi.useRealTimers());
+
+  it("labels saved Full intent without claiming live authority or changing the frozen controller", () => {
+    const entry = new LoopStore().create({ type: "dynamic" }, "Retained work", { recurring: true, maxFires: 3, completion: policy,
+      completionCwd: process.cwd(), requestedAccess: "full" }); const frozen = freeze(structuredClone(entry)), before = structuredClone(frozen);
+    const output = text(frozen); expect(output).toContain("Requested access: Full (stored intent only"); expect(output).not.toContain("Full active"); expect(frozen).toEqual(before);
+  });
 
   it.each([
     ["memory", "memory (process-local)"],

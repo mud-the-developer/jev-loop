@@ -1,13 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { type BudgetBounds, budgetBounds, budgetEvidenceHash, budgetPacket, budgetTiers, operatingBudgetExhausted } from "../adaptive-budget.js";
 import { VERIFICATION_SUPPORTED, type VerificationOptions, type VerificationResult, verifyCompletion } from "../completion-verifier.js";
 import { COMPLETION_CONTEXT_LIMIT, COMPLETION_EVIDENCE_LIMIT, type CompletionPolicy, completionPacket, completionPolicyFitsPacket, englishSummary, readCompletionAdvice, VERIFICATION_TIMEOUT_MS, validateCompletionPolicy } from "../jev-completion.js";
+import { decideAtJevRecipient } from "../jev-recipient.js";
+import type { LoopAccessCeilings } from "../loop-access.js";
 import { atMaxFires } from "../loop-reducer.js";
 import type { AdaptiveBudgetState, LoopEntry } from "../types.js";
 import { confirmCompletionApproval } from "../ui/completion-approval.js";
+import type { createLoopAccessRuntime, LoopAccessLease } from "./loop-access-runtime.js";
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const FULL_RECOVERY_REQUIRED = "Retained Full intent needs explicit Reviewed recovery via LoopAccess review_goal; a new mode activation cannot adopt it.";
 
 export interface CompletionStore {
   get(id: string): LoopEntry | undefined;
@@ -20,7 +24,8 @@ interface Options {
   pi: ExtensionAPI;
   getStore: () => CompletionStore;
   getGeneration?: () => number;
-  isContextCurrent?: (ctx: ExtensionToolContext) => boolean;
+  isContextCurrent?: (ctx: ExtensionContext) => boolean;
+  getAccess?: () => ReturnType<typeof createLoopAccessRuntime> | undefined;
   verify?: (command: string, args: string[], options: VerificationOptions) => Promise<VerificationResult>;
 }
 class StaleCompletionScopeError extends Error {}
@@ -44,7 +49,9 @@ export interface CompletionReviewResult {
 }
 
 interface BudgetApproval { bounds: BudgetBounds; startedAt?: number }
-interface SetupBudget { maxFires: number; expiresAt: number; adaptive?: BudgetBounds; startedAt?: number }
+interface SetupBudget { maxFires: number; expiresAt: number; adaptive?: BudgetBounds; startedAt?: number; requestedAccess?: "reviewed" | "full"; lifetimeMs?: number }
+type ApprovalSource = { source: "goal_review" } | { source: "session_full_access"; grant: Pick<LoopAccessLease, "id" | "epoch">; budget: LoopAccessCeilings };
+type Approval = { store: CompletionStore; scope: string; id: string } & ApprovalSource;
 function approvalText(policy: CompletionPolicy, cwd: string, maxFires: number, expiresAt: number, adaptive?: BudgetApproval): string {
   return [
     "Approve this exact JEV-assisted loop setup for this live session only?",
@@ -62,7 +69,7 @@ function available(ctx: ExtensionToolContext): boolean {
   return typeof ctx?.executeTool === "function" && ctx.tools?.some(tool => tool.name === "jev_decide");
 }
 function fingerprint(entry: LoopEntry): string {
-  return JSON.stringify([entry.id, entry.createdAt, entry.completionId, entry.completionCwd, entry.completion, entry.maxFires, entry.expiresAt, ...(entry.adaptiveBudget ? [entry.adaptiveBudget.startedAt] : [])]);
+  return JSON.stringify([entry.id, entry.createdAt, entry.completionId, entry.completionCwd, entry.completion, entry.maxFires, entry.expiresAt, ...(entry.adaptiveBudget ? [entry.adaptiveBudget.startedAt] : []), ...(entry.requestedAccess ? [entry.requestedAccess] : [])]);
 }
 function cancellable<T>(promise: Promise<T>, signal: AbortSignal, interruption: () => Error): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -78,7 +85,10 @@ export type CompletionReviewPhase = "checking" | "approval" | "verification" | "
 export function createJevLoopRuntime(options: Options) {
   let epoch = 0;
   let closed = false;
-  const approvals = new Map<string, { store: CompletionStore; scope: string; id: string }>();
+  const approvals = new Map<string, Approval>();
+  // Cleanup ownership outlives a refused/canceled approval; it never authorizes effects.
+  const fullOwned = new Map<string, Extract<Approval, { source: "session_full_access" }>>();
+  const requests = new Map<Promise<unknown>, string>();
   const busy = new Set<string>();
   const previous = new Map<string, string>();
   const owned = new Set<AbortController>();
@@ -102,6 +112,8 @@ export function createJevLoopRuntime(options: Options) {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, ...[caller, ctx.signal].filter((value): value is AbortSignal => !!value)]);
     const deadline = expiresAt;
+    let bound: LoopAccessLease | undefined;
+    const abortForAccess = () => controller.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Node/Bun truncate very long timer delays; re-arm against the actual expiry.
     function scheduleExpiry() {
@@ -129,8 +141,14 @@ export function createJevLoopRuntime(options: Options) {
         || ctx.cwd !== cwd || ctx.sessionManager.getSessionId() !== session || options.isContextCurrent?.(ctx) === false) {
         throw new StaleCompletionScopeError("Stale or cancelled completion scope; inspect LoopList and resubmit in the current session.");
       }
+      if (bound && !bound.current()) throw new StaleCompletionScopeError("Loop Full authority changed; no further effect is authorized.");
     }
-    return { store, cwd, signal, deadline, key, check, interruption, abort: () => controller.abort(), dispose: () => { clearTimeout(timer); timer = undefined; owned.delete(controller); } };
+    return { store, cwd, signal, deadline, key, check, interruption, get recipient() { return bound?.binding.judgeFence; }, get grantId() { return bound?.id; },
+      bind(access: LoopAccessLease) {
+        bound?.signal.removeEventListener("abort", abortForAccess); bound = access;
+        bound.signal.addEventListener("abort", abortForAccess, { once: true }); if (bound.signal.aborted) controller.abort(); check();
+      },
+      abort: () => controller.abort(), dispose: () => { clearTimeout(timer); timer = undefined; bound?.signal.removeEventListener("abort", abortForAccess); owned.delete(controller); } };
   }
 
   async function confirm(ctx: ExtensionToolContext, policy: CompletionPolicy, budget: SetupBudget, operation: ReturnType<typeof scope>) {
@@ -149,6 +167,43 @@ export function createJevLoopRuntime(options: Options) {
     }
   }
 
+  function decision(ctx: ExtensionToolContext, packet: ReturnType<typeof completionPacket>, operation: ReturnType<typeof scope>) {
+    operation.check();
+    const result = operation.recipient ? decideAtJevRecipient(ctx, packet, operation.recipient, { signal: operation.signal, current: () => { operation.check(); return true; } })
+      : ctx.executeTool("jev_decide", packet, { signal: operation.signal });
+    if (operation.grantId) {
+      requests.set(result, operation.grantId);
+      void result.then(() => requests.delete(result), () => requests.delete(result));
+    }
+    return result;
+  }
+
+  async function bindApproval(ctx: ExtensionToolContext, approval: Approval, operation: ReturnType<typeof scope>, action: "create" | "verify" | "advice") {
+    if (approval.source !== "session_full_access") return;
+    const access = options.getAccess?.();
+    if (!access?.matches(ctx, approval.grant)) throw new StaleCompletionScopeError("Retained Full intent needs explicit Reviewed recovery; a new mode grant cannot adopt it.");
+    const lease = await access.authorize(ctx, action, approval.budget, operation.signal); operation.check();
+    if (lease.id !== approval.grant.id || lease.epoch !== approval.grant.epoch) throw new StaleCompletionScopeError("Loop Full grant changed during admission.");
+    operation.bind(lease);
+  }
+
+  function canActivate(entry: LoopEntry, ctx: ExtensionContext): boolean {
+    if (entry.requestedAccess !== "full") return true;
+    const approval = approvals.get(fingerprint(entry));
+    if (closed || !approval || approval.store !== options.getStore() || options.isContextCurrent?.(ctx) === false
+      || approval.scope !== JSON.stringify([epoch, options.getGeneration?.(), ctx.sessionManager.getSessionId(), ctx.cwd])) return false;
+    return approval.source === "goal_review" || options.getAccess?.()?.matches(ctx, approval.grant) === true;
+  }
+
+  function holdCreated(entry: LoopEntry, store: CompletionStore): boolean {
+    const current = store.get(entry.id); if (!current) return true;
+    if (fingerprint(current) !== fingerprint(entry)) return false;
+    // Hard expiry already denies work; cleanup must not renew it to obtain a pause CAS.
+    if (Date.now() >= current.expiresAt) return true;
+    return current.status === "paused" || store.stopDynamic(current.id, "paused", { status: current.status,
+      iteration: current.dynamic!.iteration, updatedAt: current.updatedAt, completionSnapshot: JSON.stringify(current) });
+  }
+
   async function selectBudget(ctx: ExtensionToolContext, input: { policy: CompletionPolicy; bounds: BudgetBounds; current?: AdaptiveBudgetState; fireCount: number; evidence: string; operation: ReturnType<typeof scope>; check: () => void }) {
     const { policy, bounds, current, fireCount, evidence, operation, check } = input;
     let assessments = 0;
@@ -161,7 +216,7 @@ export function createJevLoopRuntime(options: Options) {
         const packet = budgetPacket(policy, bounds, current, fireCount, evidence, axis, chosen, higher);
         let advice: ReturnType<typeof readCompletionAdvice>;
         try {
-          const answer = await cancellable(ctx.executeTool("jev_decide", packet, { signal: operation.signal }), operation.signal, operation.interruption);
+          const answer = await cancellable(decision(ctx, packet, operation), operation.signal, operation.interruption);
           advice = readCompletionAdvice(answer, packet.options);
         } catch {
           check();
@@ -184,8 +239,13 @@ export function createJevLoopRuntime(options: Options) {
     validateCompletionPolicy(policy);
     if (!completionPolicyFitsPacket(policy)) throw new Error("Completion policy cannot fit the JEV packet bound with even minimum evidence; shorten the English goal, criteria or verifier description before setup approval.");
     if (!VERIFICATION_SUPPORTED) throw new Error("JEV verification currently requires POSIX process-group cleanup.");
-    let expiresAt = budget.expiresAt;
+    const full = budget.requestedAccess === "full", admittedAt = full ? Date.now() : undefined;
+    const lifetime = budget.adaptive?.maxLifetimeMs ?? budget.lifetimeMs;
+    if (full && (!Number.isSafeInteger(lifetime) || lifetime! < 1)) throw new Error("Full admission requires an explicit finite expiresIn ceiling.");
+    let expiresAt = full ? admittedAt! + lifetime! : budget.expiresAt;
+    if (full && !Number.isSafeInteger(expiresAt)) throw new Error("Full hard deadline exceeds the safe time range.");
     let operation = scope(ctx, expiresAt, caller);
+    let source: ApprovalSource = { source: "goal_review" };
     try {
       for (const [key, approval] of approvals) {
         const current = approval.store === operation.store ? operation.store.get(approval.id) : undefined;
@@ -194,16 +254,20 @@ export function createJevLoopRuntime(options: Options) {
           previous.delete(key);
         }
       }
-      await confirm(ctx, policy, budget, operation);
+      if (full) {
+        const access = options.getAccess?.(); if (!access) throw new Error("Loop Full native activation is not available; requestedAccess alone is not authority.");
+        const envelope = { maxFires: budget.maxFires, maxLifetimeMs: lifetime! };
+        const lease = await access.authorize(ctx, "create", envelope, operation.signal); operation.check(); operation.bind(lease);
+        source = { source: "session_full_access", grant: { id: lease.id, epoch: lease.epoch }, budget: envelope };
+      } else await confirm(ctx, policy, budget, operation);
       operation.check();
       let adaptiveBudget: AdaptiveBudgetState | undefined;
       if (budget.adaptive) {
-        const startedAt = Date.now();
+        const startedAt = admittedAt ?? Date.now();
         expiresAt = startedAt + budget.adaptive.maxLifetimeMs;
         if (!Number.isSafeInteger(expiresAt)) throw new Error("Adaptive hard deadline exceeds the safe time range.");
-        operation.dispose();
-        operation = scope(ctx, expiresAt, caller);
-        const selected = await selectBudget(ctx, { policy, bounds: budget.adaptive, fireCount: 0, evidence: "Initial allocation after exact native range approval.", operation, check: operation.check });
+        if (!full) { operation.dispose(); operation = scope(ctx, expiresAt, caller); }
+        const selected = await selectBudget(ctx, { policy, bounds: budget.adaptive, fireCount: 0, evidence: full ? "Initial allocation within the activated finite session scope." : "Initial allocation after exact native range approval.", operation, check: operation.check });
         adaptiveBudget = { startedAt, fireLimit: selected.fireLimit, expiresAt: startedAt + selected.lifetimeMs, revision: 0, lastReviewedFireCount: 0 };
       }
       return {
@@ -211,14 +275,25 @@ export function createJevLoopRuntime(options: Options) {
         adaptiveBudget,
         check: operation.check,
         remember(entry: LoopEntry) {
-          operation.check();
-          approvals.set(fingerprint(entry), { store: operation.store, scope: operation.key, id: entry.id });
+          try {
+            operation.check();
+            if (full && entry.requestedAccess !== "full") throw new StaleCompletionScopeError("Full admission lost its inert intent tag.");
+            const key = fingerprint(entry), record: Approval = { store: operation.store, scope: operation.key, id: entry.id, ...source };
+            approvals.set(key, record); if (record.source === "session_full_access") fullOwned.set(key, record);
+          } catch (error) {
+            if (full) {
+              const held = holdCreated(entry, operation.store);
+              throw new StaleCompletionScopeError(`Created loop #${entry.id} was held${held ? " in retained storage" : "; its CAS pause was unconfirmed"}; inspect LoopList. No wake was authorized.`);
+            }
+            throw error;
+          }
         },
       };
     } finally { operation.dispose(); }
   }
 
   async function adjustBudget(entry: LoopEntry, evidence: unknown, ctx: ExtensionToolContext, caller?: AbortSignal): Promise<{ entry?: LoopEntry; check?: () => void; message: string }> {
+    if (entry.requestedAccess === "full" && !canActivate(entry, ctx)) return { message: Date.now() >= entry.expiresAt || atMaxFires(entry) ? "Full goal expired or exhausted; it cannot be renewed." : FULL_RECOVERY_REQUIRED };
     const current = entry.adaptiveBudget;
     if (!current || !entry.completion?.budgetRange) return { entry, message: "Fixed budget unchanged." };
     const summary = evidence === undefined ? "No additional progress evidence supplied." : evidence;
@@ -247,10 +322,12 @@ export function createJevLoopRuntime(options: Options) {
       const approval = approvals.get(key);
       if (approval?.store !== operation.store || approval.scope !== operation.key) {
         observation.phase = "approval";
+        if (entry.requestedAccess === "full") throw new StaleCompletionScopeError(FULL_RECOVERY_REQUIRED);
         try { await confirm(ctx, policy, { maxFires: entry.maxFires!, expiresAt: entry.expiresAt, adaptive: bounds, startedAt: current.startedAt }, operation); }
         catch (error) { check(); return { message: error instanceof Error ? error.message : "Budget approval was not granted; no retry." }; }
-        check(); approvals.set(key, { store: operation.store, scope: operation.key, id: entry.id });
+        check(); approvals.set(key, { store: operation.store, scope: operation.key, id: entry.id, source: "goal_review" });
       }
+      if (approval?.source === "session_full_access") { await bindApproval(ctx, approval, operation, "advice"); check(); }
       if (current.lastReviewedFireCount === (entry.fireCount ?? 0) && (evidence === undefined || current.evidenceHash === hash)) {
         retainApproval = true;
         return operatingBudgetExhausted(entry) ? { message: "Operating budget checkpoint remains exhausted; supply genuinely new budget evidence or inspect it. No unchanged review." } : { entry, check: operation.check, message: "This fire's budget was already assessed; allocation unchanged." };
@@ -281,6 +358,7 @@ export function createJevLoopRuntime(options: Options) {
     if (!VERIFICATION_SUPPORTED) return held("JEV verification currently requires POSIX process-group cleanup.");
     if (!englishSummary(evidence, COMPLETION_EVIDENCE_LIMIT)) return held("Supply separate English completionEvidence of 1–1024 characters, without private data; completion held.");
     const progressSummary = evidence;
+    if (entry.requestedAccess === "full" && !canActivate(entry, ctx)) return held(Date.now() >= entry.expiresAt || atMaxFires(entry) ? "Full goal expired or exhausted; it cannot be renewed." : FULL_RECOVERY_REQUIRED);
     if (busy.has(entry.id)) return held("A completion review is already in progress; wait for its result.");
     const policy = entry.completion!;
     validateCompletionPolicy(policy);
@@ -316,6 +394,7 @@ export function createJevLoopRuntime(options: Options) {
       const approval = approvals.get(key);
       if (approval?.store !== operation.store || approval.scope !== operation.key) {
         observation.phase = "approval";
+        if (entry.requestedAccess === "full") throw new StaleCompletionScopeError(FULL_RECOVERY_REQUIRED);
         try { await confirm(ctx, policy, { maxFires: entry.maxFires!, expiresAt: entry.expiresAt,
           ...(entry.adaptiveBudget ? { adaptive: budgetBounds(policy, entry.maxFires!, entry.expiresAt - entry.adaptiveBudget.startedAt), startedAt: entry.adaptiveBudget.startedAt } : {}) }, operation); }
         catch {
@@ -323,8 +402,9 @@ export function createJevLoopRuntime(options: Options) {
           return held("Completion held: setup review did not finish with valid approval. Stop here; a fresh explicit user request is required before another approval.");
         }
         check();
-        approvals.set(key, { store: operation.store, scope: operation.key, id: entry.id });
+        approvals.set(key, { store: operation.store, scope: operation.key, id: entry.id, source: "goal_review" });
       }
+      if (approval?.source === "session_full_access") { await bindApproval(ctx, approval, operation, "verify"); check(); }
       check();
       let verified: VerificationResult;
       try {
@@ -355,7 +435,7 @@ export function createJevLoopRuntime(options: Options) {
         receipt.assessments.push(observed);
         let answer: ReturnType<typeof readCompletionAdvice>;
         try {
-          const result = await cancellable(ctx.executeTool("jev_decide", packet, { signal: operation.signal }), operation.signal, operation.interruption);
+          const result = await cancellable(decision(ctx, packet, operation), operation.signal, operation.interruption);
           answer = readCompletionAdvice(result);
         } catch {
           check();
@@ -391,6 +471,7 @@ export function createJevLoopRuntime(options: Options) {
       const completed = operation.store.stopDynamic(entry.id, "completed", {
         status: reserved.status, iteration: reserved.dynamic!.iteration, updatedAt: reserved.updatedAt, completionSnapshot: snapshot,
       });
+      if (completed) fullOwned.delete(key);
       return { completed, receipt, message: completed ? `Dynamic loop #${entry.id} completed and deleted` : "Controller changed during final completion; inspect LoopList and resubmit." };
     } catch (error) {
       // Store failures can follow a write; only known scope rejection is a clean hold.
@@ -408,20 +489,74 @@ export function createJevLoopRuntime(options: Options) {
     }
   }
 
-  async function cancel(entry: LoopEntry) {
-    const key = fingerprint(entry);
+  async function authorizeProgress(entry: LoopEntry, ctx: ExtensionToolContext, caller?: AbortSignal): Promise<() => void> {
+    if (Date.now() >= entry.expiresAt || atMaxFires(entry)) throw new StaleCompletionScopeError("Full goal expired or exhausted; no continue/resume is authorized.");
+    if (!canActivate(entry, ctx)) throw new StaleCompletionScopeError(FULL_RECOVERY_REQUIRED);
+    if (busy.has(entry.id)) throw new StaleCompletionScopeError("This goal already has an owned review; wait for it before progress/resume.");
+    const operation = scope(ctx, entry.expiresAt, caller);
+    try {
+      const approval = approvals.get(fingerprint(entry));
+      if (!approval) throw new StaleCompletionScopeError(FULL_RECOVERY_REQUIRED);
+      if (approval.source === "session_full_access") await bindApproval(ctx, approval, operation, "create");
+      operation.check(); return operation.check;
+    } finally { operation.dispose(); }
+  }
+
+  async function recoverReviewed(entry: LoopEntry, ctx: ExtensionToolContext, caller?: AbortSignal): Promise<string> {
+    if (entry.requestedAccess !== "full" || !entry.completion) return "Explicit Reviewed recovery applies only to retained Full intent.";
+    if (Date.now() >= entry.expiresAt || atMaxFires(entry)) return "Expired or exhausted Full goals cannot be renewed or resumed.";
+    if (busy.has(entry.id) || options.getAccess?.()?.status(ctx).phase === "revoking") return "Owned work is still draining; no recovery or new activation is authorized.";
+    const pendingOwner = fullOwned.get(fingerprint(entry));
+    if (pendingOwner && [...requests.values()].includes(pendingOwner.grant.id)) return "Owned advice callbacks have not settled; explicit recovery is held, not renewed.";
+    const operation = scope(ctx, entry.expiresAt, caller), key = fingerprint(entry), reviewId = randomUUID();
+    let finished!: () => void; const done = new Promise<void>(resolve => { finished = resolve; });
+    busy.add(entry.id); reviews.set(key, { abort: operation.abort, done, phase: "approval", reviewId, store: operation.store,
+      epoch, generation: options.getGeneration?.(), signal: operation.signal });
+    try {
+      operation.check();
+      if (entry.completionCwd !== operation.cwd) return "Reviewed recovery needs the original working directory.";
+      const reserved = operation.store.reserveCompletionReview?.(entry.id, JSON.stringify(entry), { id: reviewId, expiresAt: entry.expiresAt });
+      if (!reserved) return "Recovery held: another review or controller change owns this snapshot; inspect LoopList.";
+      const snapshot = JSON.stringify(reserved);
+      await confirm(ctx, entry.completion, { maxFires: entry.maxFires!, expiresAt: entry.expiresAt,
+        ...(entry.adaptiveBudget ? { adaptive: budgetBounds(entry.completion, entry.maxFires!, entry.expiresAt - entry.adaptiveBudget.startedAt), startedAt: entry.adaptiveBudget.startedAt } : {}) }, operation);
+      operation.check(); if (JSON.stringify(operation.store.get(entry.id)) !== snapshot) throw new StaleCompletionScopeError("Controller changed during explicit Reviewed recovery.");
+      approvals.set(key, { store: operation.store, scope: operation.key, id: entry.id, source: "goal_review" }); fullOwned.delete(key);
+      return "Explicit Reviewed recovery approved for the unchanged remaining hard envelope. Use LoopUpdate continue to resume; exhausted operating allocations still require their normal budget checkpoint.";
+    } finally {
+      try { operation.store.releaseCompletionReview?.(entry.id, reviewId); }
+      finally { reviews.delete(key); busy.delete(entry.id); operation.dispose(); finished(); }
+    }
+  }
+
+  async function cancelKey(key: string) {
     approvals.delete(key); previous.delete(key);
-    const review = reviews.get(key);
-    review?.abort();
-    await review?.done;
+    const review = reviews.get(key); review?.abort(); await review?.done;
+  }
+  async function cancel(entry: LoopEntry) { const key = fingerprint(entry); await cancelKey(key); fullOwned.delete(key); }
+
+  async function cancelFull(grantId: string) {
+    const records = [...fullOwned].filter(([, approval]) => approval.grant.id === grantId);
+    let unconfirmed = false; const draining: Promise<void>[] = [];
+    for (const [key, approval] of records) {
+      fullOwned.delete(key); draining.push(cancelKey(key));
+      const entry = approval.store.get(approval.id);
+      if (!entry) continue;
+      if (fingerprint(entry) !== key) { unconfirmed = true; continue; }
+      try { if (!holdCreated(entry, approval.store)) unconfirmed = true; } catch { unconfirmed = true; }
+    }
+    const callbacks = [...requests].filter(([, id]) => id === grantId).map(([request]) => request);
+    const results = await Promise.allSettled(draining); await Promise.allSettled(callbacks);
+    if (unconfirmed || results.some(result => result.status === "rejected")) throw new Error("Owned Full cleanup or controller CAS pause is unconfirmed; no new activation.");
   }
 
   async function shutdown() {
     closed = true;
     epoch++;
-    approvals.clear(); previous.clear();
     for (const controller of owned) controller.abort();
-    await Promise.allSettled([...processes, ...[...reviews.values()].map(review => review.done)]);
+    await options.getAccess?.()?.revoke();
+    approvals.clear(); previous.clear();
+    await Promise.allSettled([...processes, ...requests.keys(), ...[...reviews.values()].map(review => review.done)]);
   }
   options.pi.on("session_shutdown", shutdown);
   options.pi.on("session_start", () => { closed = false; epoch++; approvals.clear(); previous.clear(); });
@@ -430,5 +565,5 @@ export function createJevLoopRuntime(options: Options) {
     // Control versions also change on wakes; only declared work progress renews evidence.
     if (fingerprint(before) === key && (before.dynamic?.state !== after.dynamic?.state || before.dynamic?.metrics !== after.dynamic?.metrics)) previous.delete(key);
   }
-  return { setup, adjustBudget, review, cancel, shutdown, getReviewPhase, recordProgress };
+  return { setup, adjustBudget, review, cancel, cancelFull, shutdown, getReviewPhase, recordProgress, canActivate, authorizeProgress, recoverReviewed };
 }

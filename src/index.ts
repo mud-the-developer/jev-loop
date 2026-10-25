@@ -64,6 +64,8 @@ export default function (pi: ExtensionAPI) {
   let _sessionId: string | undefined;
   let orchestrationRuntime: SubagentOrchestrationRuntime | undefined;
   let shutdownCompletionReviews = async () => {};
+  let canActivateCompletion: (entry: LoopEntry, ctx: ExtensionContext) => boolean = entry => entry.requestedAccess !== "full";
+  const completionAuthorityCurrent = (entry: LoopEntry) => entry.requestedAccess !== "full" || (_latestCtx !== undefined && canActivateCompletion(entry, _latestCtx));
 
   const getScopeOptions = () => ({ piLoopEnv, loopScope });
   const defaultLoopExpiryMs = resolveDefaultLoopExpiryMs(process.env.PI_LOOP_EXPIRES_IN);
@@ -102,6 +104,7 @@ export default function (pi: ExtensionAPI) {
     cleanDoneTasks: () => cleanDoneTasks(),
     getHasPendingMessages: () => _latestCtx?.hasPendingMessages() ?? false,
     getLoop: (id) => store.get(id),
+    isLoopAuthorized: completionAuthorityCurrent,
     onLoopNotificationDelivered: ({ loopId, orchestrationWakeSequence }) => {
       if (orchestrationWakeSequence !== undefined) orchestrationRuntime?.acknowledgeWake(loopId, orchestrationWakeSequence);
     },
@@ -341,6 +344,12 @@ export default function (pi: ExtensionAPI) {
       widget.update();
       return false;
     }
+    if (!completionAuthorityCurrent(current)) {
+      triggerSystem.remove(current.id);
+      store.stopDynamic(current.id, "paused", { status: current.status, iteration: current.dynamic!.iteration,
+        updatedAt: current.updatedAt, completionSnapshot: JSON.stringify(current) });
+      widget.update(); return false;
+    }
     const fireResult = store.fireOrExpire(current.id, origin, undefined, {
       createdAt: current.createdAt,
       updatedAt: current.updatedAt,
@@ -536,6 +545,7 @@ export default function (pi: ExtensionAPI) {
   const completionRuntime = registerLoopTools({
     pi,
     getGeneration: () => sessionGeneration,
+    getStorageScope: () => resolveLoopStorageScope(getScopeOptions(), _sessionId),
     isContextCurrent: (ctx) => _sessionId === ctx.sessionManager.getSessionId() && isCurrentExtensionContext(),
     getStore: () => store,
     getTriggerSystem: () => triggerSystem,
@@ -552,6 +562,7 @@ export default function (pi: ExtensionAPI) {
     cancelOrchestration: (id, action) => orchestrationRuntime!.cancel(id, action),
   });
   shutdownCompletionReviews = completionRuntime.shutdown;
+  canActivateCompletion = completionRuntime.canActivate;
   widget.setReviewPhaseProvider(completionRuntime.getReviewPhase);
 
   registerSubagentOrchestrationTools({
@@ -609,6 +620,7 @@ export default function (pi: ExtensionAPI) {
     isContextCurrent: (ctx) => _sessionId === ctx.sessionManager.getSessionId() && isCurrentExtensionContext(),
     cancelLoop: completionRuntime.cancelLoop,
     getReviewPhase: completionRuntime.getReviewPhase,
+    getAccessStatus: completionRuntime.getAccessStatus,
     getStorageScope: () => resolveLoopStorageScope(getScopeOptions(), _sessionId),
     getNextFire: (id) => scheduler.nextFire(id),
   });
@@ -630,6 +642,7 @@ export default function (pi: ExtensionAPI) {
     },
     cancelOrchestration: (id, action) => orchestrationRuntime!.cancel(id, action),
     cancelCompletion: completionRuntime.cancelLoop,
+    canActivate: completionAuthorityCurrent,
   });
 
 }

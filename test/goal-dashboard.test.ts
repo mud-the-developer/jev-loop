@@ -19,6 +19,13 @@ function setup(count = 1, rows = 40) {
   return { store, abort, done, render, data, view, invalidate: () => { current = false; } };
 }
 
+it.each([true, false])("labels Full as a local scope observation, never a restored or remote grant (applicable=%s)", applicable => {
+  const h = setup(); const before = structuredClone(h.store.list());
+  h.data.access = () => ({ phase: "full", applicable, ceilings: { maxFires: 20, maxLifetimeMs: 3600000 } });
+  const rendered = h.view.render(48).join("\n"); expect(rendered).toContain(applicable ? "Full (local)" : "Full (blocked)");
+  expect(rendered).not.toContain("provider verified"); expect(h.store.list()).toEqual(before); expect(h.done).not.toHaveBeenCalled();
+});
+
 it.each([48, 80, 120])("bounds native layout at %s columns without mutating goals or implying review execution", width => {
   const h = setup(25); const before = structuredClone(h.store.list()); const lines = h.view.render(width); const content = lines.join("\n");
   expect(lines.length).toBeLessThanOrEqual(36); expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);

@@ -191,6 +191,36 @@ These are source features; examples and tests do not approve an actual run.
 
 Malformed JEV persistence metadata follows previous-snapshot recovery or a visible corruption error, never guessed identity/cwd or restored approval.
 
+## Scoped access — v1 source candidate
+
+Released v0.1.3 remains Reviewed. This source candidate adds `LoopAccess` and
+explicit `LoopCreate.requestedAccess`; it does not activate an installed mode or
+approve these examples. Full requires compatible JEV **protocol 2** recipient
+fencing/deny-only invalidation notices, actual No-first native acknowledgement,
+session storage and finite **per-goal** ceilings:
+
+```text
+LoopAccess({ action: "status" })
+LoopAccess({ action: "full", maxFires: 20, expiresIn: "2h" })
+```
+
+Only after genuine activation may a **new** bounded recurring idle JEV goal opt
+in with `requestedAccess: "full"`. Missing/`reviewed` retains per-goal native
+Reviewed setup; existing goals are not adopted. Full is same-OS-user execution,
+not a filesystem/tool sandbox, worker grant or bypass of mandatory host gates.
+Goal-selected fixed commands inherit the process environment and may affect
+files outside the cwd. Only authorize this class for work you intend to permit.
+
+`LoopAccess({ action: "reviewed" })` aborts/drains this owner's Full effects and
+CAS-pauses unfinished owned goals, preserving unrelated Reviewed work. Saved
+Full intent is not permission: `review_goal` requests explicit native Reviewed
+recovery without resetting hard limits; then resume through normal controls
+when eligible. Expired/exhausted or unknown/draining work is not renewed.
+The dashboard labels local mode and stored intent separately, not remote health.
+See the [access contract](./docs/LOOP_ACCESS_CONTRACT.md) for timing, privacy,
+recovery and evidence limits. Actual native/worker acceptance is separate from
+controlled automated checks.
+
 ## What it provides
 
 - Cron, event, hybrid, dynamic goal, and opt-in workflow loops
@@ -211,6 +241,7 @@ Malformed JEV persistence metadata follows previous-snapshot recovery or a visib
 | `/loop` | Create or manage ordinary scheduled, event, and dynamic goal loops |
 | `/tasks` | Manage native fallback tasks when `pi-tasks` is absent |
 | `LoopCreate`, `LoopList`, `LoopUpdate`, `LoopDelete` | Create and control ordinary loops |
+| `LoopAccess` (v1 source candidate) | Inspect/native-activate/revoke scoped Loop access, or explicitly recover retained Full intent as Reviewed |
 | `WorkflowCreate`, `WorkflowClaim`, `WorkflowRevise`, `WorkflowTransition` | Create, claim, revise, and advance workflows; paused terminals require trusted blocker admission |
 | `OrchestrationCreate`, `OrchestrationGet` | Run and inspect a durable finite batch of independent async subagent work; distinct from provider-native `SubagentWorkflow`; cancel with `LoopDelete` |
 | `MonitorCreate`, `MonitorList`, `MonitorStop` | Run and inspect background commands |

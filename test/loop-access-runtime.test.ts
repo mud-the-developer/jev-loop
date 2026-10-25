@@ -1,10 +1,10 @@
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";
 import { createLoopAccessRuntime } from "../src/runtime/loop-access-runtime.js";
 
 const ceilings = { maxFires: 20, maxLifetimeMs: 3600000 };
 const budget = { maxFires: 3, maxLifetimeMs: 600000 };
-const info = { kind: "jev_capabilities", protocolVersion: 1, available: true, recipient: "opaque-a", fencedDecision: true,
+const info = { kind: "jev_capabilities", protocolVersion: 2, recipientInvalidationEvent: "jev:recipient:invalidated", available: true, recipient: "opaque-a", fencedDecision: true,
   delegationFencing: false, grantsAuthority: false, liveVerified: false } as const;
 function result(value: Record<string, unknown> = info) { return { isError: false, result: { content: [{ type: "text", text: JSON.stringify(value) }], details: value } }; }
 function fixture() {
@@ -12,9 +12,10 @@ function fixture() {
   const execute = vi.fn(async () => result()); const confirm = vi.fn(async (..._args: unknown[]) => true as unknown); const drain = vi.fn(async (_id: string) => {});
   const ctx = { cwd: "/workspace", hasUI: true, sessionManager: { getSessionId: () => session },
     tools: [{ name: "jev_capabilities" }, { name: "jev_decide" }], executeTool: execute } as unknown as ExtensionToolContext;
-  const owner = createLoopAccessRuntime({ getStore: () => store, getGeneration: () => generation, getStorageScope: () => storage,
+  const events = createEventBus();
+  const owner = createLoopAccessRuntime({ events, getStore: () => store, getGeneration: () => generation, getStorageScope: () => storage,
     isContextCurrent: () => current, confirm, drain });
-  return { ctx, execute, confirm, drain, owner, changeStore: () => { store = {}; }, changeGeneration: () => { generation++; },
+  return { ctx, execute, confirm, drain, owner, events, changeStore: () => { store = {}; }, changeGeneration: () => { generation++; },
     changeSession: () => { session = "session-b"; }, stale: () => { current = false; }, project: () => { storage = "project"; } };
 }
 
@@ -30,6 +31,40 @@ it("keeps an unexposed owner Reviewed until actual matching native acknowledgeme
     const lease = await h.owner.authorize(h.ctx, action, budget); expect(lease.current()).toBe(true); expect(lease.binding.judgeFence).toBe("opaque-a");
   }
   expect(h.confirm).toHaveBeenCalledTimes(1); expect(h.drain).not.toHaveBeenCalled();
+});
+
+it("matches the live grant independently of a completed operation's caller signal and rejects old epochs", async () => {
+  const h = fixture(); await h.owner.enable(h.ctx, ceilings); const caller = new AbortController();
+  const lease = await h.owner.authorize(h.ctx, "verify", budget, caller.signal); caller.abort();
+  expect(lease.current()).toBe(false); expect(h.owner.matches(h.ctx, lease)).toBe(true); const calls = h.execute.mock.calls.length;
+  expect(h.owner.matches(h.ctx, { ...lease, epoch: lease.epoch + 1 })).toBe(false); expect(h.execute).toHaveBeenCalledTimes(calls);
+  await h.owner.revoke(); await h.owner.enable(h.ctx, ceilings); expect(h.owner.matches(h.ctx, lease)).toBe(false);
+});
+
+it("invalidates the matching grant synchronously on the public deny-only event before owned draining", async () => {
+  const h = fixture(); await h.owner.enable(h.ctx, ceilings); const lease = await h.owner.authorize(h.ctx, "verify", budget);
+  try {
+    h.events.emit("jev:recipient:invalidated", { kind: "jev_recipient_invalidated", protocolVersion: 2, recipient: "opaque-a" });
+    expect(lease.signal.aborted).toBe(true); expect(lease.current()).toBe(false); expect(h.owner.status(h.ctx).phase).toBe("revoking");
+  } finally { await h.owner.close(); }
+});
+
+it("ignores wrong-token, unknown-version, malformed and authority-shaped event packets", async () => {
+  const h = fixture(); await h.owner.enable(h.ctx, ceilings); const lease = await h.owner.authorize(h.ctx, "verify", budget);
+  const event = { kind: "jev_recipient_invalidated", protocolVersion: 2, recipient: "opaque-a" };
+  for (const packet of [undefined, { ...event, recipient: "other" }, { ...event, protocolVersion: 1 }, { ...event, full: true }]) h.events.emit("jev:recipient:invalidated", packet);
+  expect(lease.current()).toBe(true); expect(h.owner.status(h.ctx).phase).toBe("full"); expect(h.drain).not.toHaveBeenCalled(); await h.owner.close();
+});
+
+it("cancels a pending native acknowledgement if its bound recipient is invalidated", async () => {
+  const h = fixture(); let entered!: () => void; let dialog!: AbortSignal; const ready = new Promise<void>(resolve => { entered = resolve; });
+  h.confirm.mockImplementationOnce(async (_ctx, _packet, options) => {
+    dialog = (options as { signal: AbortSignal }).signal; entered();
+    return new Promise<boolean>(resolve => { dialog.addEventListener("abort", () => resolve(false), { once: true }); });
+  });
+  const pending = h.owner.enable(h.ctx, ceilings); await ready;
+  try { h.events.emit("jev:recipient:invalidated", { kind: "jev_recipient_invalidated", protocolVersion: 2, recipient: "opaque-a" }); expect(dialog.aborted).toBe(true); }
+  finally { await h.owner.close(); expect(await pending).toBe(false); }
 });
 
 it("keeps status read-only and its ceiling snapshot independent of the live grant", async () => {

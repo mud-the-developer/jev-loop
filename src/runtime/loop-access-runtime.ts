@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Value } from "typebox/value";
-import { inspectJevRecipient } from "../jev-recipient.js";
+import { inspectJevRecipient, RECIPIENT_INVALIDATED_EVENT, readJevInvalidatedRecipient } from "../jev-recipient.js";
 import { type LoopAccessBinding, LoopAccessBindingSchema, type LoopAccessCeilings, LoopAccessCeilingsSchema, type LoopAccessEvent, type LoopAccessState, reduceLoopAccess } from "../loop-access.js";
 import { confirmLoopFullAccess } from "../ui/completion-approval.js";
 
 export interface LoopAccessRuntimeOptions {
+  events: Pick<ExtensionAPI["events"], "on">;
   getStore: () => object;
   getGeneration: () => number;
   getStorageScope: () => string;
@@ -30,6 +31,10 @@ export function createLoopAccessRuntime(options: LoopAccessRuntimeOptions) {
   let draining: Promise<void> | undefined;
   const confirm = options.confirm ?? confirmLoopFullAccess;
   const cleanupError = "Loop Full cleanup is unconfirmed; new activation remains blocked. No automatic retry.";
+  const unsubscribe = options.events.on(RECIPIENT_INVALIDATED_EVENT, payload => {
+    const recipient = readJevInvalidatedRecipient(payload);
+    if (recipient && (state.phase === "full" || state.phase === "awaiting_ack") && state.binding.judgeFence === recipient) invalidate();
+  });
 
   function identity(ctx: ExtensionContext): Identity | undefined {
     try {
@@ -72,12 +77,13 @@ export function createLoopAccessRuntime(options: LoopAccessRuntimeOptions) {
       && !live.controller.signal.aborted && current(ctx, live.identity);
   }
   async function settle(close = false): Promise<void> {
-    invalidate(close); const pendingDone = pending?.done, work = draining;
+    invalidate(close); if (close) unsubscribe(); const pendingDone = pending?.done, work = draining;
     await Promise.all([pendingDone, work]);
     if (state.phase === "revoking") throw new Error(cleanupError);
   }
 
   return {
+    matches(ctx: ExtensionContext, lease: Pick<LoopAccessLease, "id" | "epoch">): boolean { return active(ctx, lease.id, lease.epoch); },
     status(ctx: ExtensionContext): LoopAccessStatus {
       return { phase: pending && state.phase === "reviewed" ? "checking" : state.phase,
         applicable: state.phase === "full" && active(ctx, state.id, state.epoch),
@@ -87,7 +93,7 @@ export function createLoopAccessRuntime(options: LoopAccessRuntimeOptions) {
       if (pending || draining || state.phase !== "reviewed") throw new Error("Loop Full activation is pending, active, revoking or closed; no new review.");
       if (!Value.Check(LoopAccessCeilingsSchema, ceilings)) throw new Error("Loop Full requires valid finite goal ceilings.");
       const captured = identity(ctx); if (!captured) throw new Error("Loop Full requires current UI/session storage context.");
-      const controller = new AbortController(); let finish = () => {};
+      const controller = new AbortController(); let finish!: () => void;
       const operation = { controller, done: new Promise<void>(resolve => { finish = resolve; }) }; pending = operation;
       const signal = AbortSignal.any([controller.signal, ...[caller, ctx.signal].filter((s): s is AbortSignal => !!s)]);
       const scope = { signal, current: () => current(ctx, captured) };
@@ -132,7 +138,7 @@ export function createLoopAccessRuntime(options: LoopAccessRuntimeOptions) {
       const grantIdentity = live.identity;
       const signal = AbortSignal.any([live.controller.signal, ...[caller, ctx.signal].filter((s): s is AbortSignal => !!s)]);
       const scope = { signal, current: () => active(ctx, captured.id, captured.epoch) };
-      let finish = () => {}; const operation = new Promise<void>(resolve => { finish = resolve; }); authorizations.add(operation);
+      let finish!: () => void; const operation = new Promise<void>(resolve => { finish = resolve; }); authorizations.add(operation);
       try {
         const peer = await inspectJevRecipient(ctx, scope);
         if (peer.recipient !== captured.binding.judgeFence) { transition({ type: "authorize", id: captured.id, epoch: captured.epoch, binding: { ...captured.binding, judgeFence: peer.recipient! }, action, budget }); throw new Error(); }

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { budgetBounds, budgetPacket } from "../adaptive-budget.js";
 import type { verifyCompletion } from "../completion-verifier.js";
@@ -8,12 +8,14 @@ import { formatTrigger } from "../loop-format.js";
 import { parseInterval } from "../loop-parse.js";
 import { atMaxFires } from "../loop-reducer.js";
 import { type CompletionStore, createJevLoopRuntime } from "../runtime/jev-loop-runtime.js";
+import { createLoopAccessRuntime, type LoopAccessStatus } from "../runtime/loop-access-runtime.js";
 import type { OrchestrationCancellation } from "../runtime/subagent-orchestration-runtime.js";
 import type { LoopEntry, LoopPauseKind, Trigger } from "../types.js";
 import { orchestrationCancellationMessage, orchestrationProgressLabel, orchestrationStatusLabel } from "../ui/orchestration-presentation.js";
 import { renderToolCall, renderToolResult, toolArg } from "../ui/tool-renderer.js";
 import { deriveWorkflowActivity, formatCompactWorkflowDuration } from "../ui/workflow-presentation.js";
 import { getActiveWorkflowStateLoop } from "../workflow-reducer.js";
+import { registerLoopAccessTool } from "./loop-access-tools.js";
 import { displayRows, textResult } from "./tool-result.js";
 import { formatWorkflowSummary } from "./workflow-tools.js";
 
@@ -29,6 +31,7 @@ interface LoopStoreLike extends CompletionStore {
     maxFires?: number;
     expiresIn?: string;
     completion?: LoopEntry["completion"];
+    requestedAccess?: LoopEntry["requestedAccess"];
     completionCwd?: string;
     completionExpiresAt?: number;
     adaptiveBudget?: LoopEntry["adaptiveBudget"];
@@ -79,7 +82,8 @@ export interface LoopToolsOptions {
   onDynamicLoopActivated?: (entry: LoopEntry) => void;
   cancelOrchestration?: (id: string, action: "pause" | "delete") => Promise<OrchestrationCancellation>;
   getGeneration?: () => number;
-  isContextCurrent?: (ctx: ExtensionToolContext) => boolean;
+  getStorageScope?: () => string;
+  isContextCurrent?: (ctx: ExtensionContext) => boolean;
   verify?: typeof verifyCompletion;
 }
 
@@ -224,8 +228,8 @@ function stopDynamicLoop(
   };
 }
 
-export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof createJevLoopRuntime> & { cancelLoop(entry: LoopEntry, action?: "pause" | "delete"): Promise<boolean> } {
-  const completionRuntime = createJevLoopRuntime(options);
+export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof createJevLoopRuntime> & { cancelLoop(entry: LoopEntry, action?: "pause" | "delete"): Promise<boolean>; getAccessStatus(ctx: ExtensionContext): LoopAccessStatus | undefined } {
+  let completionRuntime: ReturnType<typeof createJevLoopRuntime>;
   const {
     pi,
     getStore,
@@ -238,6 +242,22 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
     onDynamicLoopActivated,
     cancelOrchestration,
   } = options;
+  const makeAccess = () => typeof pi.events?.on === "function" && typeof pi.events?.emit === "function" ? createLoopAccessRuntime({
+    events: pi.events, getStore, getGeneration: () => options.getGeneration?.() ?? 0,
+    getStorageScope: () => options.getStorageScope?.() ?? "memory", isContextCurrent: ctx => options.isContextCurrent?.(ctx) === true,
+    drain: id => completionRuntime.cancelFull(id),
+  }) : undefined;
+  let access = makeAccess();
+  const revokeForLifecycle = async () => { await access?.revoke(); };
+  pi.on("session_before_switch", revokeForLifecycle); pi.on("session_before_fork", revokeForLifecycle);
+  pi.on("session_before_tree", revokeForLifecycle); pi.on("session_before_compact", revokeForLifecycle);
+  pi.on("session_shutdown", async () => {
+    const completionShutdown = completionRuntime.shutdown();
+    await Promise.all([completionShutdown, access?.close()]);
+  });
+  completionRuntime = createJevLoopRuntime({ ...options, getAccess: () => access });
+  pi.on("session_start", (_event, ctx) => { if (access?.status(ctx).phase === "closed") access = makeAccess(); });
+  registerLoopAccessTool({ pi, getAccess: () => access, getStore, updateWidget, recover: completionRuntime.recoverReviewed });
 
   async function cancelLoop(entry: LoopEntry, action: "pause" | "delete" = "delete"): Promise<boolean> {
     if (!entry.completion) return false;
@@ -258,7 +278,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
     label: "LoopCreate",
     renderCall: renderToolCall("Loop", (args) => `create · ${String(toolArg(args, "prompt") ?? "scheduled work").slice(0, 56)}`),
     renderResult: renderToolResult,
-    description: "Create cron/event/hybrid/idle loops; no shell sleep loops. Polling needs maxFires; observations use readOnly. A completed iteration, unchanged result, or temporarily empty check is not a reason to delete the loop. Optional completion: idle, finite maxFires, English policy, fixed verifier, native approval. JEV advice is not proof/permission.",
+    description: "Create cron/event/hybrid/idle loops. Polling: maxFires; observe: readOnly; no shell sleep. A completed iteration, unchanged result, or temporarily empty check is not a reason to delete the loop. JEV: bounded idle, English policy/fixed verifier/native authority; advisory only.",
     promptGuidelines: [
       "Prefer event triggers; use triggerType `idle` with trigger `idle` for agent-paced continuation of one evolving goal that does not need WorkflowCreate phases/outcomes.",
       "For autonomous backlogs use event `tasks:created`, recurring true, taskBacklog true, and bounded maxFires; never combine taskBacklog with autoTask or manually delete its loop.",
@@ -276,9 +296,12 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
       maxFires: Type.Optional(Type.Integer({ description: "Auto-stop after N fires. Prevents infinite token burn on polling loops.", minimum: 1 })),
       expiresIn: Type.Optional(Type.String({ description: "Lifetime for this new loop, e.g. 12h or 14d; overrides PI_LOOP_EXPIRES_IN" })),
       completion: Type.Optional(CompletionPolicySchema),
+      requestedAccess: Type.Optional(Type.Union([Type.Literal("reviewed"), Type.Literal("full")], { description: "Default Reviewed. Full is only for a new recurring idle completion goal under matching live LoopAccess activation; this argument is never a grant." })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { trigger: triggerInput, prompt, recurring, autoTask, taskBacklog, triggerType, debounceMs, readOnly, maxFires, expiresIn, completion } = params.completion === undefined ? params : structuredClone(params);
+      const { trigger: triggerInput, prompt, recurring, autoTask, taskBacklog, triggerType, debounceMs, readOnly, maxFires, expiresIn, completion, requestedAccess } = params.completion === undefined ? params : structuredClone(params);
+      if (requestedAccess !== undefined && requestedAccess !== "reviewed" && requestedAccess !== "full") return textResult("Unknown requestedAccess; choose Reviewed or a genuinely activated Full scope.");
+      if (requestedAccess === "full" && (!completion || expiresIn === undefined)) return textResult("Full requires a new bounded recurring idle completion goal and explicit finite expiresIn; no fallback was started.");
 
       let trigger: Trigger;
       const inferred = triggerType ?? inferTriggerType(triggerInput);
@@ -341,7 +364,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
         }));
       }
 
-      let entry: LoopEntry;
+      let entry: LoopEntry | undefined;
       try {
         const store = getStore();
         let approved: Awaited<ReturnType<typeof completionRuntime.setup>> | undefined;
@@ -357,7 +380,8 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
           if (completion.budgetRange && expiresIn === undefined) throw new Error("Adaptive budgets require an explicit finite expiresIn upper envelope.");
           const adaptive = completion.budgetRange ? budgetBounds(completion, maxFires!, parseLoopDurationMs(expiresIn!)) : undefined;
           if (adaptive) budgetPacket(completion, adaptive, undefined, 0, "Initial allocation after exact native range approval.", "fires", adaptive.minFires, adaptive.maxFires);
-          approved = await completionRuntime.setup(ctx, completion, { maxFires: maxFires!, expiresAt: completionExpiresAt, adaptive }, signal);
+          approved = await completionRuntime.setup(ctx, completion, { maxFires: maxFires!, expiresAt: completionExpiresAt, adaptive, requestedAccess,
+            ...(requestedAccess === "full" ? { lifetimeMs: parseLoopDurationMs(expiresIn!) } : {}) }, signal);
           approved.check();
           completionExpiresAt = approved.expiresAt;
           adaptiveBudget = approved.adaptiveBudget;
@@ -370,6 +394,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
           maxFires: maxFires ?? (taskBacklog ? 25 : undefined),
           expiresIn,
           completion,
+          requestedAccess: requestedAccess === "full" ? "full" : undefined,
           completionCwd: completion ? ctx.cwd : undefined,
           completionExpiresAt,
           adaptiveBudget,
@@ -384,7 +409,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
           kind: "loop",
           action: "create",
           tone: "error",
-          summary: "Loop was not created",
+          summary: entry ? "Created loop was held before activation; inspect retained state" : "Loop was not created",
           expanded: [message],
         });
       }
@@ -523,7 +548,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
     label: "LoopUpdate",
     renderCall: renderToolCall("Loop", (args) => `update · #${String(toolArg(args, "id") ?? "?")} · ${String(toolArg(args, "status") ?? "continue")}`),
     renderResult: renderToolResult,
-    description: 'Update a dynamic loop; never use LoopDelete to finish an iteration. Continue while work remains; pause only for real blockers. JEV unmet diagnoses gaps and continues within original bounds: inspect, repair or collect new evidence. Completed needs English completionEvidence, fixed verification and supported met; no private artifacts. nextInterval delays a wake.',
+    description: 'Update a dynamic loop; never use LoopDelete to finish an iteration. Continue work; pause only for real blockers. Unmet needs scoped diagnosis/repair/new evidence. Completion needs English completionEvidence, fixed verification and supported met; no private artifacts. nextInterval delays wakes.',
     parameters: Type.Object({
       id: Type.String({ description: "Dynamic loop ID to update" }),
       status: Type.String({ description: "continue, completed, or paused", enum: ["continue", "completed", "paused"] }),
@@ -563,12 +588,17 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
         }));
       }
 
+      let fullCheck: (() => void) | undefined;
       if (entry.completion) {
         const reject = (message: string) => textResult(message, { kind: "loop", action: "update", tone: "error", summary: "Completion held", expanded: [message] });
-        if (params.prompt !== undefined || params.doneCriteria !== undefined || Object.hasOwn(params, "completion")) {
+        if (params.prompt !== undefined || params.doneCriteria !== undefined || ["completion", "requestedAccess", "maxFires", "expiresIn"].some(field => Object.hasOwn(params, field))) {
           return reject("Completion goal/policy is immutable; explicitly cancel and recreate with approval if it must change.");
         }
         if (params.status === "continue" && atMaxFires(entry)) return reject("Controller fire cap exhausted; inspect or cancel, never continue/resume. Verified final completion remains permitted before expiry.");
+        if (params.status === "continue" && entry.requestedAccess === "full") {
+          try { fullCheck = await completionRuntime.authorizeProgress(entry, ctx, signal); fullCheck(); }
+          catch (error) { return reject(error instanceof Error ? error.message : "Full progress held; inspect live authority."); }
+        }
         if (params.status === "continue" && entry.adaptiveBudget) {
           const wake = resolveNextWakeAt(params.nextInterval);
           if (wake.error || wake.nextWakeAt !== undefined && wake.nextWakeAt >= entry.expiresAt) return reject(wake.error ?? "nextInterval exceeds the hard envelope.");
@@ -609,6 +639,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
           return "askUser" in result && result.askUser ? { ...output, details: { ...output.details, askUser: result.askUser } } : output;
         }
       }
+      try { fullCheck?.(); } catch (error) { return textResult(error instanceof Error ? error.message : "Full authority changed before progress commit; inspect LoopList."); }
       const dynamicEntry = entry as LoopEntry & { dynamic: NonNullable<LoopEntry["dynamic"]> };
       const continued = params.status === "continue" ? continueDynamicLoop(params, dynamicEntry, store, triggerSystem) : undefined;
       const outcome = continued ?? stopDynamicLoop(params, dynamicEntry, store, triggerSystem);
@@ -644,7 +675,7 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
     label: "LoopDelete",
     renderCall: renderToolCall("Loop", (args) => `${String(toolArg(args, "action") ?? "delete")} · #${String(toolArg(args, "id") ?? "?")}`),
     renderResult: renderToolResult,
-    description: `Pause or delete a loop. Do neither after a normal, empty, or unchanged iteration: recurring loops persist and dynamic loops use LoopUpdate. Delete only for explicit cancellation or a satisfied stop condition; pause only for a genuine temporary blocker or required user authority.`,
+    description: `Pause/delete a loop. Do neither after a normal, empty, or unchanged iteration. Delete only on explicit cancellation/satisfied stop; pause for a real blocker/required authority. Use LoopUpdate for progress.`,
     parameters: Type.Object({
       id: Type.String({ description: "Loop ID to delete or pause" }),
       action: Type.Optional(Type.String({ description: "delete or pause (default: delete)", enum: ["delete", "pause"], default: "delete" })),
@@ -710,5 +741,5 @@ export function registerLoopTools(options: LoopToolsOptions): ReturnType<typeof 
       }));
     },
   });
-  return { ...completionRuntime, cancelLoop };
+  return { ...completionRuntime, cancelLoop, getAccessStatus: ctx => access?.status(ctx) };
 }

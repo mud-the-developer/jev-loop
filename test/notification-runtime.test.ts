@@ -3,9 +3,35 @@ import { createOrchestrationState } from "../src/orchestration-reducer.js";
 import { createNotificationRuntime } from "../src/runtime/notification-runtime.js";
 import { LoopStore } from "../src/store.js";
 import type { LoopEntry } from "../src/types.js";
+import { policy } from "./helpers/jev-loop-fixture.js";
 import { createMockPi } from "./helpers/mock-pi.js";
 
 describe("notification runtime session boundary", () => {
+  it.each([true, false])("drops a Full wake after local authority is revoked before storage pause (status metadata=%s)", async statusMetadata => {
+    const { pi, sentMessages } = createMockPi(); const store = new LoopStore(); let authorized = true;
+    const entry = store.create({ type: "dynamic" }, "Retained Full intent", { recurring: true, maxFires: 3, completion: policy,
+      completionCwd: "/private/workspace", requestedAccess: "full" });
+    const fired = store.fire(entry.id)!; const snapshot = structuredClone(fired);
+    const runtime = createNotificationRuntime({ pi, hasPendingTasks: async () => 0, cleanDoneTasks: async () => {},
+      getHasPendingMessages: () => false, getLoop: id => store.get(id), isLoopAuthorized: () => authorized });
+    runtime.syncRuntimeState({ agentRunning: true });
+    await runtime.queueOrDeliverNotification({ loopId: entry.id, prompt: entry.prompt, trigger: entry.trigger,
+      timestamp: Date.now(), recurring: true, ...(statusMetadata ? { controllerStatus: "active" as const } : {}) });
+    authorized = false; runtime.syncRuntimeState({ agentRunning: false, hasPendingMessages: false }); await runtime.flushPendingNotifications({ ignorePendingMessages: true });
+    expect(sentMessages).toEqual([]); expect(store.get(entry.id)).toEqual(snapshot);
+  });
+
+  it("keeps an authorized Full wake deliverable without mutating controller state", async () => {
+    const { pi, sentMessages } = createMockPi(); const store = new LoopStore();
+    const entry = store.create({ type: "dynamic" }, "Authorized Full intent", { recurring: true, maxFires: 3, completion: policy,
+      completionCwd: "/private/workspace", requestedAccess: "full" });
+    const snapshot = structuredClone(entry);
+    const runtime = createNotificationRuntime({ pi, hasPendingTasks: async () => 0, cleanDoneTasks: async () => {}, getHasPendingMessages: () => false,
+      getLoop: id => store.get(id), isLoopAuthorized: () => true });
+    await runtime.queueOrDeliverNotification({ loopId: entry.id, prompt: entry.prompt, trigger: entry.trigger, timestamp: Date.now(), recurring: true, controllerStatus: "active" });
+    expect(sentMessages).toHaveLength(1); expect(store.get(entry.id)).toEqual(snapshot);
+  });
+
   it.each(["delete", "pause", "complete"] as const)("AUD-04: explicit %s invalidates a buffered loop wake", async (action) => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
@@ -497,8 +523,9 @@ describe("notification runtime session boundary", () => {
       orchestrationWakeSequence: 3,
     });
     current.status = "paused";
-    current.orchestration.status = "cancelled";
-    current.orchestration.pendingWake = undefined;
+    expect(current.orchestration).toBeDefined();
+    current.orchestration!.status = "cancelled";
+    current.orchestration!.pendingWake = undefined;
 
     runtime.syncRuntimeState({ agentRunning: false, hasPendingMessages: false });
     await runtime.flushPendingNotifications({ ignorePendingMessages: true });

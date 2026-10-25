@@ -1,10 +1,10 @@
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";
 import { completionPacket } from "../src/jev-completion.js";
-import { decideAtJevRecipient, inspectJevRecipient, type JevToolOutcome, readJevCapabilities } from "../src/jev-recipient.js";
+import { decideAtJevRecipient, inspectJevRecipient, type JevToolOutcome, readJevCapabilities, readJevInvalidatedRecipient } from "../src/jev-recipient.js";
 import { policy } from "./helpers/jev-loop-fixture.js";
 
-const capabilities = { kind: "jev_capabilities", protocolVersion: 1, available: true, recipient: "opaque-current",
+const capabilities = { kind: "jev_capabilities", protocolVersion: 2, recipientInvalidationEvent: "jev:recipient:invalidated", available: true, recipient: "opaque-current",
   fencedDecision: true, delegationFencing: false, grantsAuthority: false, liveVerified: false } as const;
 function outcome(details: unknown): JevToolOutcome {
   const copy = structuredClone(details);
@@ -25,12 +25,20 @@ it("reads bounded matching metadata as information without manufacturing a grant
 });
 
 it.each([
-  { ...capabilities, protocolVersion: 2 }, { ...capabilities, grantsAuthority: true }, { ...capabilities, liveVerified: true },
+  { ...capabilities, protocolVersion: 1 }, { ...capabilities, protocolVersion: 3 },
+  { ...capabilities, recipientInvalidationEvent: undefined }, { ...capabilities, recipientInvalidationEvent: "unknown:event" }, { ...capabilities, grantsAuthority: true }, { ...capabilities, liveVerified: true },
   { ...capabilities, delegationFencing: true }, { ...capabilities, recipient: "" }, { ...capabilities, recipient: " " },
   { ...capabilities, available: true, recipient: null }, { ...capabilities, available: false, recipient: "opaque" },
   { ...capabilities, endpoint: "PRIVATE_UNEXPECTED_METADATA" },
 ])("fails closed on unsupported, contradictory or extra capability data %s", info => {
   expect(() => readJevCapabilities(outcome(info))).toThrow("capability");
+});
+
+it("reads only bounded closed deny-only event data, never authority or unknown versions", () => {
+  const event = { kind: "jev_recipient_invalidated", protocolVersion: 2, recipient: "opaque-current" };
+  expect(readJevInvalidatedRecipient(event)).toBe("opaque-current");
+  for (const invalid of [undefined, "PRIVATE_EVENT", { ...event, protocolVersion: 1 }, { ...event, recipient: "" }, { ...event, recipient: "a\nb" },
+    { ...event, recipient: "x".repeat(129) }, { ...event, full: true }, { ...event, kind: "authorize" }]) expect(readJevInvalidatedRecipient(invalid)).toBeUndefined();
 });
 
 it("rejects error, conflicting or oversized metadata without echoing raw values", () => {
