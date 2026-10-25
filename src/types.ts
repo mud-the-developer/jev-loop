@@ -347,6 +347,8 @@ export interface LoopEntry {
   workflow?: WorkflowRunState;
   orchestration?: OrchestrationState;
   completion?: import("./jev-completion.js").CompletionPolicy;
+  // Persisted intent is never a live native grant.
+  requestedAccess?: "full";
   completionId?: string;
   completionCwd?: string;
   completionVersion?: number;

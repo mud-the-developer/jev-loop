@@ -2,6 +2,7 @@ import { stripVTControlCharacters } from "node:util";
 import { type ExtensionCommandContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, SelectList, type TUI, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { CompletionReviewPhase } from "../runtime/jev-loop-runtime.js";
+import type { LoopAccessStatus } from "../runtime/loop-access-runtime.js";
 import type { LoopStorageScope } from "../runtime/scope.js";
 import type { LoopEntry } from "../types.js";
 import { formatLoopLifecycle } from "./lifecycle-presentation.js";
@@ -17,6 +18,7 @@ export interface GoalDashboardData {
   pendingGoal: () => string | undefined;
   phase: (entry: LoopEntry) => CompletionReviewPhase | undefined;
   storageScope: () => LoopStorageScope;
+  access?: () => LoopAccessStatus | undefined;
   nextFire: (id: string) => number | undefined;
   current: () => boolean;
   signal: AbortSignal;
@@ -159,7 +161,9 @@ export class GoalDashboard {
     const height = Math.max(8, Math.min(34, this.tui.terminal.rows - 4));
     const wide = width >= 100; const bodyRows = height - 6; const listRows = wide ? bodyRows - 2 : Math.min(3, Math.max(1, Math.floor(bodyRows / 3)));
     this.syncList(Math.max(1, listRows));
-    const header = this.theme.fg("accent", this.theme.bold("◆ JEV LOOP  /  MISSION CONTROL"));
+    const access = this.data.access?.();
+    const mode = access?.phase === "full" ? access.applicable ? "Full (local)" : "Full (blocked)" : access?.phase;
+    const header = this.theme.fg("accent", this.theme.bold(`◆ JEV LOOP${mode ? ` · ${mode}` : ""}  /  MISSION CONTROL`));
     const phase = this.selected() && this.data.phase(this.selected()!);
     const pulse = this.motion && phase ? ["◐", "◓", "◑", "◒"][this.frame % 4] : "◇";
     const pending = this.data.pendingGoal();

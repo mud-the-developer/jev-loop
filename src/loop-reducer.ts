@@ -49,6 +49,7 @@ export type LoopReducerEvent =
       readOnly?: boolean;
       maxFires?: number;
       completion?: LoopEntry["completion"];
+      requestedAccess?: LoopEntry["requestedAccess"];
       completionId?: string;
       completionCwd?: string;
       adaptiveBudget?: LoopEntry["adaptiveBudget"];
@@ -238,6 +239,7 @@ export function reduceLoopState(state: LoopReducerState, event: LoopReducerEvent
       fireCount: 0,
       ...(event.payload.completion ? {
         completion: structuredClone(event.payload.completion),
+        ...(event.payload.requestedAccess ? { requestedAccess: event.payload.requestedAccess } : {}),
         completionId: event.payload.completionId,
         completionCwd: event.payload.completionCwd,
         completionVersion: 0,

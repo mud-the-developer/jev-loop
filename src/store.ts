@@ -95,9 +95,13 @@ function validateControllerDomain(entry: {
   taskBacklog?: boolean;
   trigger: Trigger;
   completion?: LoopEntry["completion"];
+  requestedAccess?: unknown;
   recurring?: boolean;
   maxFires?: number;
 }): void {
+  if (entry.requestedAccess !== undefined && (entry.requestedAccess !== "full" || entry.completion === undefined)) {
+    throw new Error("Full access intent requires a valid completion controller; intent never grants authority.");
+  }
   if (entry.completion !== undefined) {
     validateCompletionPolicy(entry.completion);
     if (entry.trigger.type !== "dynamic" || !entry.recurring || entry.autoTask || entry.taskBacklog || entry.workflow || entry.orchestration
@@ -248,7 +252,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
     );
   }
 
-  create(trigger: Trigger, prompt: string, opts: { recurring: boolean; autoTask?: boolean; taskBacklog?: boolean; readOnly?: boolean; maxFires?: number; expiresIn?: string; completion?: LoopEntry["completion"]; completionCwd?: string; completionExpiresAt?: number; adaptiveBudget?: LoopEntry["adaptiveBudget"]; dynamic?: Partial<DynamicLoopState>; workflow?: WorkflowDefinition; actor?: WorkflowRuntimeActor; orchestration?: { definition: OrchestrationDefinitionInput; owner: OrchestrationActor } }): LoopEntry {
+  create(trigger: Trigger, prompt: string, opts: { recurring: boolean; autoTask?: boolean; taskBacklog?: boolean; readOnly?: boolean; maxFires?: number; expiresIn?: string; completion?: LoopEntry["completion"]; requestedAccess?: LoopEntry["requestedAccess"]; completionCwd?: string; completionExpiresAt?: number; adaptiveBudget?: LoopEntry["adaptiveBudget"]; dynamic?: Partial<DynamicLoopState>; workflow?: WorkflowDefinition; actor?: WorkflowRuntimeActor; orchestration?: { definition: OrchestrationDefinitionInput; owner: OrchestrationActor } }): LoopEntry {
     return this.withLock(() => {
       if (this.entries.size >= MAX_LOOPS) {
         throw new Error(`Maximum of ${MAX_LOOPS} loops reached. Delete some before creating new ones.`);
@@ -282,6 +286,7 @@ export class LoopStore extends ReducerBackedStore<LoopEntry, LoopReducerState, L
           readOnly: opts.readOnly,
           maxFires: opts.maxFires,
           completion: opts.completion,
+          requestedAccess: opts.requestedAccess,
           completionId: opts.completion ? randomUUID() : undefined,
           completionCwd: opts.completionCwd,
           adaptiveBudget: opts.adaptiveBudget,

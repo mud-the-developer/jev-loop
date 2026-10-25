@@ -566,6 +566,31 @@ checks use controlled UI/advice; they are not live-provider accuracy or v1
 completion evidence. The pre-existing function-coverage threshold remains 96%
 and is not waived by this feature.
 
+## Scoped access candidate
+
+The v1 source candidate adds `LoopAccess`; released v0.1.3 remains Reviewed.
+`status` is a local read-only observation. `full` requires real native No-first
+consent to the current session/cwd/store/generation/recipient and explicit finite
+per-goal `maxFires`/`expiresIn` ceilings. It depends on compatible public protocol
+2 recipient fencing/invalidation notices, not tool-name discovery or a private
+JEV lease. It is independent of JEV delegation's native access owner.
+
+Only a new recurring idle completion goal with `requestedAccess: "full"` may
+use that live grant. Missing/`reviewed` keeps original per-goal native setup.
+Full's hard origin is trusted admission time before any initial budget await;
+Reviewed timing is unchanged. Neither budget selection nor recovery resets the
+hard window/fire cap. Mode strings, status, events and persisted intent grant
+nothing. Full commands inherit environment/same-user permissions; no sandbox,
+secret transfer, unapproved destructive/global operation or worker grant is added.
+
+`reviewed` revokes/drains only owned Full effects and CAS-pauses unfinished work.
+Saved Full intent requires explicit `review_goal` native Reviewed recovery of
+its unchanged remaining hard envelope, followed by normal eligible resume.
+A new Full mode never adopts old goals; expired/exhausted or unknown/draining
+work stays held. Actual activation/worker/recovery acceptance needs its own
+applicable approvals; controlled UI/transport fixtures are not those approvals.
+See [LOOP_ACCESS_CONTRACT.md](LOOP_ACCESS_CONTRACT.md).
+
 ## Operator notes
 The parent translates semantic summaries, not identifiers or executable args.
 Keep user originals local. The verifier is an approved local command, not a

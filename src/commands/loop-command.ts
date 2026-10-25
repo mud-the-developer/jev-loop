@@ -48,6 +48,7 @@ export interface LoopCommandOptions {
   onDynamicLoopActivated?: (entry: LoopEntry) => void;
   cancelOrchestration?: (id: string, action: "pause" | "delete") => Promise<OrchestrationCancellation>;
   cancelCompletion?: (entry: LoopEntry, action: "pause" | "delete") => Promise<boolean>;
+  canActivate?: (entry: LoopEntry) => boolean;
 }
 
 type LoopCommandRoute =
@@ -215,7 +216,7 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
       if (entry) {
         const actions = ["x Delete"];
         if (entry.status === "active") actions.unshift("- Pause");
-        else if (canResumeFromInspection(entry)) actions.unshift("* Resume");
+        else if (canResumeFromInspection(entry) && options.canActivate?.(entry) !== false) actions.unshift("* Resume");
         actions.push("< Back");
 
         const inspection = entry.workflow
@@ -257,6 +258,7 @@ export function registerLoopCommand(options: LoopCommandOptions): void {
           updateWidget();
           ui.notify(`Loop #${entry.id} paused`, "info");
         } else if (action === "* Resume") {
+          if (options.canActivate?.(entry) === false) { ui.notify("Retained Full intent requires explicit Reviewed recovery via LoopAccess review_goal; mode status is not authority.", "warning"); return; }
           const resumed = operationStore.resume(entry.id);
           if (!resumed) return viewLoops(ui, scope);
           getTriggerSystem().add(resumed);

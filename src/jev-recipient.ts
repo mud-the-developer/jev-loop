@@ -6,8 +6,10 @@ import type { completionPacket } from "./jev-completion.js";
 export type JevToolOutcome = Awaited<ReturnType<ExtensionToolContext["executeTool"]>>;
 export type JevRecipientScope = { readonly signal: AbortSignal; readonly current: () => boolean };
 const closed = { additionalProperties: false };
-const recipient = Type.String({ minLength: 1, maxLength: 128, pattern: "\\S" });
-const common = { kind: Type.Literal("jev_capabilities"), protocolVersion: Type.Literal(1), fencedDecision: Type.Literal(true),
+const recipient = Type.String({ minLength: 1, maxLength: 128, pattern: "^(?=.*\\S)[^\\x00-\\x1f\\x7f]+$" });
+export const RECIPIENT_INVALIDATED_EVENT = "jev:recipient:invalidated";
+const invalidationSchema = Type.Object({ kind: Type.Literal("jev_recipient_invalidated"), protocolVersion: Type.Literal(2), recipient }, closed);
+const common = { kind: Type.Literal("jev_capabilities"), protocolVersion: Type.Literal(2), recipientInvalidationEvent: Type.Literal(RECIPIENT_INVALIDATED_EVENT), fencedDecision: Type.Literal(true),
   delegationFencing: Type.Literal(false), grantsAuthority: Type.Literal(false), liveVerified: Type.Literal(false) };
 const capabilitySchema = Type.Union([
   Type.Object({ ...common, available: Type.Literal(true), recipient }, closed),
@@ -53,4 +55,9 @@ export async function inspectJevRecipient(ctx: ExtensionToolContext, scope: JevR
 export async function decideAtJevRecipient(ctx: ExtensionToolContext, packet: ReturnType<typeof completionPacket>, expectedRecipient: string, scope: JevRecipientScope): Promise<JevToolOutcome> {
   check(scope); if (!Value.Check(recipient, expectedRecipient)) throw new Error("JEV recipient metadata is invalid; no decision was requested.");
   return call(ctx, "jev_decide", { ...structuredClone(packet), expectedRecipient }, scope, requestError);
+}
+
+export function readJevInvalidatedRecipient(value: unknown): string | undefined {
+  try { return Value.Check(invalidationSchema, value) ? value.recipient : undefined; }
+  catch { return undefined; }
 }

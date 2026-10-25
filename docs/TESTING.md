@@ -486,6 +486,41 @@ Artifacts default to `.artifacts/profiles/fuzz/<suite>-<unique>/`. `--out` chang
 
 `summary.json` links raw campaign/reporter files and checksums. It distinguishes requested, capped, and observed counts. Unreported counters remain `null`. Failed, interrupted, skipped, missing-profile and missing-source-identity runs do not pass. Primary assertion logs survive reporting failures. Profiling is opt-in through `PI_LOOP_FUZZ_PROFILE_DIR`, set by the runner; normal tests do not start an inspector. Capture covers suite hooks in the actual property worker, not startup, the coordinator, or native descendants. Worker RSS is a process-lifetime high-water mark. Native POSIX skips are not Windows passes. Timing and profiles do not certify correctness.
 
+## Scoped access v1 candidate
+
+```bash
+npm test -- test/loop-access.test.ts test/loop-access-runtime.test.ts test/jev-recipient.test.ts
+npm test -- test/full-access-loop.test.ts test/full-access-index.test.ts
+npm test -- test/notification-runtime.test.ts test/loop-command.test.ts test/goal-dashboard.test.ts
+npm run test:property
+```
+
+The candidate preserves the 96% function floor and 7,700-character tool-copy
+ceiling. Native acknowledgement callbacks, mock transport and keyboard events
+are controlled fixtures, not real operator Full consent or service success.
+File-backed tests cover one activation/multiple new goals, default Reviewed,
+finite caps, separate provenance, recipient denial, fixed-verifier repair,
+physical-settlement waiting, post-write retained CAS pause, immutable admission
+origin and explicit Reviewed recovery without stored-grant restoration. Native
+root/session/idle callbacks independently deny a retained Full intent before
+fire consumption; a nearby Reviewed control still fires. Queued notification
+controls invalidate authority before asynchronous storage pause without mutating
+stored state. Resume UI neither offers nor honors an unapproved Full resume.
+
+The first full slice exposed a real shutdown-order regression: awaiting the new
+mode-close callback delayed existing Reviewed cancellation and allowed a late
+advice result to settle. The unchanged deterministic verifier/JEV generation
+controls failed before the fix; immediate runtime invalidation now occurs before
+mode-close waits. Copy compression retains the original exact controller-
+preservation assertions and ceiling. Fixture validation errors and stale local
+build snapshots are not counted as product regressions.
+
+Native UI labels local Full/applicability and inert stored intent separately;
+read-only inspection cannot mint/revoke authority, pause work, claim execution or
+send a wake. Actual supported SDK/host-deny integration, genuine operator-mode
+flows, native terminal tasks and peer-owned live delegation remain separate
+release evidence; unavailable/skipped/synthetic trials are never live passes.
+
 ## Change evidence
 
 Follow `AGENTS.md` for the testing contract:

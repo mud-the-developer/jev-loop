@@ -92,6 +92,7 @@ export function formatLoopLifecycle(entry: LoopEntry, context: LifecycleInspecti
     `Next fire: ${nextFire}`,
     `Fires: ${entry.fireCount ?? 0}/${entry.maxFires ?? "unbounded"} (accounted, not delivered wakes)`,
   ];
+  if (entry.requestedAccess === "full") lines.push("Requested access: Full (stored intent only; inspect LoopAccess status for live session authority).");
   if (entry.adaptiveBudget) {
     const budget = entry.adaptiveBudget;
     lines.push(`Operating allocation: ${entry.fireCount ?? 0}/${budget.fireLimit} fires · until ${new Date(budget.expiresAt).toISOString()}`,

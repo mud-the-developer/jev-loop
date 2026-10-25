@@ -71,6 +71,7 @@ export interface NotificationRuntimeOptions {
   cleanDoneTasks: () => Promise<void>;
   getHasPendingMessages: () => boolean;
   getLoop?: (id: string) => LoopEntry | undefined;
+  isLoopAuthorized?: (entry: LoopEntry) => boolean;
   onLoopNotificationDelivered?: (data: { loopId: string; orchestrationWakeSequence?: number }) => void;
   debug?: (...args: unknown[]) => void;
 }
@@ -387,8 +388,13 @@ export function createNotificationRuntime(options: NotificationRuntimeOptions): 
   }
 
   function loopNotificationIsCurrent(notification: ReducerNotification): boolean {
-    if (!getLoop || notification.controllerStatus === undefined) return true;
+    if (!getLoop) return true;
     const current = getLoop(notification.loopId);
+    if (current) {
+      try { if (options.isLoopAuthorized?.(current) === false) return false; }
+      catch { return false; }
+    }
+    if (notification.controllerStatus === undefined) return true;
     // Capped paused controllers are retained; their removal must invalidate the final wake.
     if (!current) return notification.recurring === false
       || (notification.fireLimitReached === true && notification.controllerStatus === "active" && !notification.workflow && !notification.orchestration);

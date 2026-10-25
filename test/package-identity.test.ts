@@ -35,6 +35,7 @@ describe("standalone jev-loop GitHub release", () => {
   });
 
   it("documents a pinned release artifact, checksum validation and tagged source installation", () => {
+    expect(json("../package.json").files).toContain("docs/LOOP_ACCESS_CONTRACT.md");
     const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
     expect(readme).toContain("releases/download/v0.1.3/jev-loop-0.1.3.tgz");
     expect(readme).toContain("sha256sum -c SHA256SUMS");
