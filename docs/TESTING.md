@@ -521,6 +521,37 @@ send a wake. Actual supported SDK/host-deny integration, genuine operator-mode
 flows, native terminal tasks and peer-owned live delegation remain separate
 release evidence; unavailable/skipped/synthetic trials are never live passes.
 
+### Prepared native Full operator fixture (not automatic live acceptance)
+
+`test/e2e/jev-loop-full-operator.mjs --self-check` validates response framing
+without approvals, verification, service calls or model inference. Without the
+explicit `--operator-bridge` flag it reports SKIP, not a live pass. Use pinned
+Bun with `--no-env-file --no-install` and the peer's trusted worker bunfig.
+The live bridge also requires explicit clean Loop/peer source refs, peer root
+and the current immutable outer hard deadline; it never installs or configures
+an account. The source peer's public managed `registerJevTools` is used without
+onboarding. It is not a fake capability provider or a parent legacy-tool relay.
+
+Prepare the exact owned private cwd and current native UI request before asking
+the operator. Relaying the actual No-first Full selection and later explicit
+Reviewed recovery confirmation requires **two fresh matching native responses**;
+no earlier development/trial Yes, late ID, coercion or scripted approval is valid.
+The proposed fixture is two bounded readiness goals, one marker repair, code
+7 then 0, revocation/pause and private SDK reload/recovery. Per-goal ceilings
+are 3 fires/5 minutes; verification remains 30 seconds; execution is capped at
+10 minutes after the first actual Yes and the unchanged outer deadline. At most
+four public JEV decisions are allowed; unmet, refusal, expiry, failure or unknown
+cleanup stops without retry/fallback. A controlled SDK host-denied attempt must
+not enter its handler. These are exact trial constraints, not permission to run.
+
+The parent stream is synthetic control only. Verifier and public owner advice
+are real only in a separately authorized live trial. Original/private inputs
+never become JEV evidence. Reports distinguish operator-mediated SDK/RPC UI
+from physical-terminal/human-usability or autonomous-parent evidence. No worker,
+current host reload/global mode, secret sharing or provider/profile change is
+included. Public SDK shutdown is awaited; unknown cleanup retains the fixture
+rather than claiming rollback or removing a possibly live working directory.
+
 ## Change evidence
 
 Follow `AGENTS.md` for the testing contract:
